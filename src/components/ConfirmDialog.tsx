@@ -1,3 +1,5 @@
+import { useEffect, useRef } from 'react';
+
 interface ConfirmDialogProps {
   open: boolean;
   title: string;
@@ -7,20 +9,34 @@ interface ConfirmDialogProps {
 }
 
 export default function ConfirmDialog({ open, title, description, onCancel, onConfirm }: ConfirmDialogProps) {
-  if (!open) {
-    return null;
-  }
+  const cancelRef = useRef<HTMLButtonElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+
+    cancelRef.current?.focus();
+
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onCancel();
+    };
+
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open, onCancel]);
+
+  if (!open) return null;
 
   return (
-    <div className="modal-overlay">
-      <div className="modal">
-        <h3>{title}</h3>
-        <p>{description}</p>
+    <div className="modal-overlay" onMouseDown={onCancel}>
+      <div className="modal" onMouseDown={(e) => e.stopPropagation()}>
+        <h3 style={{ marginTop: 0 }}>{title}</h3>
+        <p style={{ marginBottom: 0 }}>{description}</p>
+
         <div className="modal-actions">
-          <button type="button" className="button secondary" onClick={onCancel}>
+          <button ref={cancelRef} type="button" className="button secondary" onClick={onCancel}>
             Cancelar
           </button>
-          <button type="button" className="button" onClick={onConfirm}>
+          <button type="button" className="button danger" onClick={onConfirm}>
             Confirmar
           </button>
         </div>

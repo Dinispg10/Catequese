@@ -8,6 +8,11 @@
   box-sizing: border-box;
 }
 
+html,
+body {
+  height: 100%;
+}
+
 body {
   margin: 0;
 }
@@ -17,9 +22,11 @@ a {
   color: inherit;
 }
 
+/* ========== SHELL (desktop) ========== */
 .shell {
   display: flex;
-  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden; /* evita duplo scroll */
 }
 
 .sidebar {
@@ -46,7 +53,7 @@ a {
 
 .nav a {
   padding: 10px 12px;
-  border-radius: 6px;
+  border-radius: 8px;
   color: #d1d5db;
 }
 
@@ -58,7 +65,15 @@ a {
 
 .content {
   flex: 1;
-  padding: 24px 32px;
+  padding: 20px 24px;
+  overflow: auto; /* scroll só no conteúdo */
+}
+
+/* ========== PAGE / CARDS ========== */
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
 }
 
 .page-header {
@@ -66,20 +81,14 @@ a {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  margin-bottom: 16px;
-}
-
-.page {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
+  margin-bottom: 0;
 }
 
 .card {
   background: #fff;
-  border-radius: 10px;
-  padding: 16px;
-  box-shadow: 0 2px 10px rgba(15, 23, 42, 0.08);
+  border-radius: 12px;
+  padding: 14px;
+  box-shadow: 0 2px 12px rgba(15, 23, 42, 0.08);
 }
 
 .grid.two {
@@ -88,12 +97,28 @@ a {
   gap: 16px;
 }
 
+/* Layout tipo Access: lista + ficha */
 .split {
   display: grid;
-  grid-template-columns: minmax(200px, 1fr) minmax(260px, 1fr);
+  grid-template-columns: 1fr 1.25fr;
   gap: 16px;
+  align-items: start;
 }
 
+@media (max-width: 1100px) {
+  .split {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Conteúdo com scroll interno */
+.card-body-scroll {
+  max-height: 62vh;
+  overflow: auto;
+  padding-right: 6px;
+}
+
+/* ========== FORMS ========== */
 .field {
   display: flex;
   flex-direction: column;
@@ -104,9 +129,18 @@ a {
 .field input,
 .field select {
   padding: 8px 10px;
-  border-radius: 6px;
+  border-radius: 8px;
   border: 1px solid #d1d5db;
   font-size: 14px;
+  height: 36px;
+  background: #fff;
+}
+
+.field input:focus,
+.field select:focus {
+  outline: none;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.15);
 }
 
 .checkbox {
@@ -118,8 +152,14 @@ a {
 
 .filters {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
+}
+
+@media (max-width: 900px) {
+  .filters {
+    grid-template-columns: 1fr 1fr;
+  }
 }
 
 .form {
@@ -133,16 +173,34 @@ a {
   flex-wrap: wrap;
   gap: 8px;
   margin-top: 8px;
+  justify-content: flex-end;
 }
 
+.section-title {
+  margin-top: 6px;
+  padding-top: 10px;
+  border-top: 1px solid #e5e7eb;
+  font-size: 12px;
+  font-weight: 700;
+  color: #64748b;
+}
+
+.section-title:first-of-type {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+
+/* ========== BUTTONS ========== */
 .button {
   background: #2563eb;
   color: #fff;
   border: none;
-  padding: 8px 14px;
-  border-radius: 6px;
+  padding: 0 14px;
+  border-radius: 8px;
   cursor: pointer;
-  font-weight: 500;
+  font-weight: 600;
+  height: 36px;
 }
 
 .button.secondary {
@@ -158,36 +216,56 @@ a {
   cursor: not-allowed;
 }
 
+/* ========== ALERT ========== */
 .alert {
   color: #dc2626;
-  font-weight: 500;
+  font-weight: 600;
+}
+
+/* ========== TABLE ========== */
+.table-scroll {
+  overflow: auto;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  max-height: 62vh;
 }
 
 .table {
   width: 100%;
   border-collapse: collapse;
   font-size: 14px;
+  background: #fff;
 }
 
 .table th,
 .table td {
-  padding: 8px;
+  padding: 9px 10px;
   border-bottom: 1px solid #e5e7eb;
   text-align: left;
 }
 
-.table tr.selected {
-  background: #e0f2fe;
+.table th {
+  position: sticky;
+  top: 0;
+  background: #f8fafc;
+  z-index: 1;
+  font-weight: 600;
+  color: #475569;
 }
 
-.table-scroll {
-  overflow-x: auto;
+.table tbody tr:hover {
+  background: #f8fafc;
+}
+
+.table tr.selected {
+  background: #dbeafe;
 }
 
 .center {
   text-align: center;
 }
 
+/* ========== LOGIN ========== */
 .login {
   min-height: 100vh;
   display: flex;
@@ -200,6 +278,7 @@ a {
   width: 320px;
 }
 
+/* ========== MODAL ========== */
 .modal-overlay {
   position: fixed;
   inset: 0;
@@ -213,7 +292,7 @@ a {
 .modal {
   background: #fff;
   padding: 20px;
-  border-radius: 10px;
+  border-radius: 12px;
   max-width: 360px;
 }
 
@@ -224,6 +303,7 @@ a {
   margin-top: 16px;
 }
 
+/* ========== TABS ========== */
 .tabs {
   display: flex;
   gap: 8px;
@@ -231,7 +311,7 @@ a {
 
 .tab {
   padding: 8px 12px;
-  border-radius: 6px;
+  border-radius: 8px;
   border: 1px solid #cbd5f5;
   background: #fff;
   cursor: pointer;
@@ -243,6 +323,7 @@ a {
   border-color: #2563eb;
 }
 
+/* ========== PRINT ========== */
 @media print {
   body {
     background: #fff;
@@ -259,10 +340,25 @@ a {
 
   .content {
     padding: 0;
+    overflow: visible;
   }
 
   .card {
     box-shadow: none;
     border: none;
+    padding: 0;
+  }
+
+  .table-scroll,
+  .card-body-scroll {
+    max-height: none;
+    overflow: visible;
+    border: none;
+  }
+
+  .table th {
+    position: static;
   }
 }
+
+.clickable-row { cursor: pointer; }
