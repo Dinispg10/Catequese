@@ -1,0 +1,30 @@
+{
+  "$schema": "../node_modules/@tauri-apps/cli/schema.json",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build",
+    "devUrl": "http://localhost:1420",
+    "frontendDist": "../dist"
+  },
+  "package": {
+    "productName": "Catequese Desktop",
+    "version": "0.1.0"
+  },
+  "tauri": {
+    "windows": [
+      {
+        "title": "Catequese Desktop",
+        "width": 1280,
+        "height": 800
+      }
+    ],
+    "bundle": {
+      "active": true,
+      "targets": ["msi"],
+      "identifier": "pt.paroquia.catequese"
+    },
+    "security": {
+      "csp": null
+    }
+  }
+}
