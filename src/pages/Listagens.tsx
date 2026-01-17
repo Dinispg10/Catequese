@@ -35,7 +35,8 @@ export default function Listagens() {
   const [filterCatequista, setFilterCatequista] = useState('');
   const [filterAnoCatecismo, setFilterAnoCatecismo] = useState('');
   const [alunos, setAlunos] = useState<Aluno[]>([]);
-  const [presencas, setPresencas] = useState<(PresencaMensal & { aluno_nome: string })[]>([]);
+  const [presencas, setPresencas] = useState<(PresencaMensal & { aluno_nome: string; aluno_nr_matricula: number | null })[]>([]);
+
 
   const loadReference = async () => {
     const { data: catequistasData } = await supabase.from('catequistas').select('*').order('nome');
@@ -54,31 +55,39 @@ export default function Listagens() {
   };
 
   const loadPresencas = async () => {
-    if (!filterCatequista || !filterAno) {
-      setPresencas([]);
-      return;
-    }
+    let query = supabase.from('presencas_mensais').select('*');
 
-    let query = supabase
-      .from('presencas_mensais')
-      .select('*')
-      .eq('catequista_id', filterCatequista)
-      .eq('ano_matricula', Number(filterAno));
-
+    if (filterCatequista) query = query.eq('catequista_id', filterCatequista);
+    if (filterAno) query = query.eq('ano_matricula', Number(filterAno));
     if (filterAnoCatecismo) query = query.eq('ano_catecismo', Number(filterAnoCatecismo));
 
     const { data } = await query;
     const presencasData = data ?? [];
 
     const alunosIds = presencasData.map((row) => row.aluno_id);
-    const { data: alunosData } = await supabase.from('alunos').select('id,nome_aluno').in('id', alunosIds);
+     const { data: alunosData } = alunosIds.length
+      ? await supabase.from('alunos').select('id,nome_aluno,nr_matricula').in('id', alunosIds)
+      : { data: [] };
 
-    const alunosMap = new Map((alunosData ?? []).map((aluno) => [aluno.id, aluno.nome_aluno]));
+    const alunosMap = new Map(
+      (alunosData ?? []).map((aluno) => [aluno.id, { nome: aluno.nome_aluno, nr_matricula: aluno.nr_matricula }])
+    );
     setPresencas(
-      presencasData.map((row) => ({
-        ...row,
-        aluno_nome: alunosMap.get(row.aluno_id) ?? row.aluno_id
-      }))
+    presencasData
+        .map((row) => {
+          const aluno = alunosMap.get(row.aluno_id);
+          return {
+            ...row,
+            aluno_nome: aluno?.nome ?? row.aluno_id,
+            aluno_nr_matricula: aluno?.nr_matricula ?? null
+          };
+        })
+        .sort((a, b) => {
+          const matriculaA = a.aluno_nr_matricula ?? Number.MAX_SAFE_INTEGER;
+          const matriculaB = b.aluno_nr_matricula ?? Number.MAX_SAFE_INTEGER;
+          if (matriculaA !== matriculaB) return matriculaA - matriculaB;
+          return a.aluno_nome.localeCompare(b.aluno_nome);
+        })
     );
   };
 
@@ -195,6 +204,7 @@ export default function Listagens() {
             <table className="table">
               <thead>
                 <tr>
+                  <th>Nº matrícula</th>
                   <th>Aluno</th>
                   {months.map((m) => (
                     <th key={m.label} className="center">
@@ -207,6 +217,7 @@ export default function Listagens() {
               <tbody>
                 {presencas.map((row) => (
                   <tr key={row.id}>
+                    <td>{row.aluno_nr_matricula ?? '-'}</td>
                     <td>{row.aluno_nome}</td>
 
                     {months.map((m) => {

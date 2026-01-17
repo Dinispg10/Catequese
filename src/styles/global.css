@@ -372,6 +372,21 @@ a {
   }
 }
 
+.table {
+    break-inside: auto;
+    page-break-inside: auto;
+  }
+
+  .table thead {
+    display: table-header-group;
+  }
+
+  .table tr {
+    break-inside: auto;
+    page-break-inside: auto;
+    page-break-after: auto;
+  }
+
 .clickable-row { cursor: pointer; }
 
 .slot-cell{
