@@ -1,8 +1,9 @@
-# Catequese Desktop
+# Catequese
 
 Aplicação desktop (Tauri + React + Vite + TypeScript) para gerir matrículas de catequese com dados no Supabase.
 
 ## Pré-requisitos (Windows)
+
 - Node.js 18+
 - Rust toolchain (https://www.rust-lang.org/tools/install)
 - Ferramentas Tauri para Windows:
@@ -10,6 +11,7 @@ Aplicação desktop (Tauri + React + Vite + TypeScript) para gerir matrículas d
   - WebView2 Runtime (normalmente já instalado no Windows 11)
 
 ## Configuração
+
 1. Copiar `.env.example` para `.env` e preencher:
    ```bash
    VITE_SUPABASE_URL=...
@@ -21,6 +23,7 @@ Aplicação desktop (Tauri + React + Vite + TypeScript) para gerir matrículas d
    - O SQL já inclui `alter publication supabase_realtime add table ...`.
 
 ## Scripts
+
 ```bash
 npm install
 npm run tauri:dev
@@ -28,7 +31,7 @@ npm run tauri:build
 ```
 
 ## Notas
+
 - A app usa login partilhado (uma conta) com RLS ativa.
 - O cliente **não** usa `service_role`.
 - Listagens podem ser impressas com `Imprimir` (usa `window.print`).
-

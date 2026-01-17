@@ -68,7 +68,7 @@ export default function Alunos() {
   };
 
   const loadAlunos = async () => {
-    let query = supabase.from('alunos').select('*').order('nome_aluno');
+    let query = supabase.from('alunos').select('*').order('nr_matricula').order('nome_aluno');
 
     if (filterAno) query = query.eq('ano_matricula', Number(filterAno));
     if (filterCatequista) query = query.eq('catequista_id', filterCatequista);

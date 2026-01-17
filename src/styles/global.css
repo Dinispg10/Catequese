@@ -334,10 +334,16 @@ a {
     background: #fff;
   }
 
+  .page > :not(.print-area) {
+    display: none !important;
+  }
+
+  .print-area {
+    display: block !important;
+  }
   .sidebar,
   .tabs,
   .page-header button,
-  .filters,
   .form-actions,
   .button {
     display: none !important;

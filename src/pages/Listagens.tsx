@@ -43,7 +43,7 @@ export default function Listagens() {
   };
 
   const loadAlunos = async () => {
-    let query = supabase.from('alunos').select('*').order('nome_aluno');
+    let query = supabase.from('alunos').select('*').order('nr_matricula').order('nome_aluno');
 
      if (filterAno) query = query.eq('ano_matricula', Number(filterAno));
      if (filterCatequista) query = query.eq('catequista_id', filterCatequista);
@@ -100,7 +100,7 @@ export default function Listagens() {
  
   return (
     <div className="page">
-      <header className="page-header">
+      <header className="page-header print-area">
         <h1>Listagens</h1>
         <button className="button" type="button" onClick={handlePrint}>
           Imprimir
@@ -120,7 +120,7 @@ export default function Listagens() {
         ))}
       </div>
 
-      <section className="card">
+      <section className="card print-area">
         <h2>Filtros</h2>
         <div className="filters">
           {activeTab === 'alunos' && (
@@ -163,6 +163,10 @@ export default function Listagens() {
                   <th>Nº matrícula</th>
                   <th>Nome</th>
                   <th>Ano matrícula</th>
+                  <th>Catequista</th>
+                  <th>Ano catequese</th>
+                  
+                  
                 </tr>
               </thead>
               <tbody>
@@ -171,6 +175,10 @@ export default function Listagens() {
                     <td>{aluno.nr_matricula}</td>
                     <td>{aluno.nome_aluno}</td>
                     <td>{aluno.ano_matricula}</td>
+                    <td>{catequistas.find((item) => item.id === aluno.catequista_id)?.nome ?? '-'}</td>
+                    <td>{aluno.ano_catecismo ?? '-'}</td>
+                    
+                    
                   </tr>
                 ))}
               </tbody>

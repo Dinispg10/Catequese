@@ -6,6 +6,7 @@ import FormField from '../components/FormField';
 
 interface PresencaRow extends PresencaMensal {
   aluno_nome: string;
+  aluno_nr_matricula: number | null;
 }
 
 const months = [
@@ -36,12 +37,14 @@ export default function Presencas() {
   };
 
   const ensurePresencas = async (alunos: Aluno[]) => {
-    const payload = alunos.map((aluno) => ({
-      aluno_id: aluno.id,
-      ano_matricula: aluno.ano_matricula,
-      catequista_id: aluno.catequista_id,
-      ano_catecismo: aluno.ano_catecismo
-    }));
+    const payload = alunos
+      .filter((aluno) => aluno.ano_catecismo !== null)
+      .map((aluno) => ({
+        aluno_id: aluno.id,
+        ano_matricula: aluno.ano_matricula,
+        catequista_id: aluno.catequista_id,
+        ano_catecismo: aluno.ano_catecismo
+      }));
     if (payload.length === 0) return;
 
     await supabase.from('presencas_mensais').upsert(payload, {
@@ -50,45 +53,42 @@ export default function Presencas() {
   };
 
   const loadPresencas = async () => {
-    if (!filterCatequista || !filterAnoMatricula) {
-      setRows([]);
-      return;
-    }
-
-    let alunosQuery = supabase
-      .from('alunos')
-      .select('*')
-      .eq('catequista_id', filterCatequista)
-      .eq('ano_matricula', Number(filterAnoMatricula));
-
-    if (filterAnoCatecismo) {
-      alunosQuery = alunosQuery.eq('ano_catecismo', Number(filterAnoCatecismo));
-    }
+    let alunosQuery = supabase.from('alunos').select('*');
+    if (filterCatequista) alunosQuery = alunosQuery.eq('catequista_id', filterCatequista);
+    if (filterAnoMatricula) alunosQuery = alunosQuery.eq('ano_matricula', Number(filterAnoMatricula));
+    if (filterAnoCatecismo) alunosQuery = alunosQuery.eq('ano_catecismo', Number(filterAnoCatecismo));
 
     const { data: alunosData } = await alunosQuery;
     const alunos = alunosData ?? [];
 
     await ensurePresencas(alunos);
 
-    let presencasQuery = supabase
-      .from('presencas_mensais')
-      .select('*')
-      .eq('catequista_id', filterCatequista)
-      .eq('ano_matricula', Number(filterAnoMatricula));
+    let presencasQuery = supabase.from('presencas_mensais').select('*');
 
-    if (filterAnoCatecismo) {
-      presencasQuery = presencasQuery.eq('ano_catecismo', Number(filterAnoCatecismo));
-    }
+    if (filterCatequista) presencasQuery = presencasQuery.eq('catequista_id', filterCatequista);
+    if (filterAnoMatricula) presencasQuery = presencasQuery.eq('ano_matricula', Number(filterAnoMatricula));
+    if (filterAnoCatecismo) presencasQuery = presencasQuery.eq('ano_catecismo', Number(filterAnoCatecismo));
 
     const { data: presencasData } = await presencasQuery;
     const presencas = presencasData ?? [];
 
-    const rowsWithNome = presencas.map((presenca) => ({
-      ...presenca,
-      aluno_nome: alunos.find((aluno) => aluno.id === presenca.aluno_id)?.nome_aluno ?? 'Sem nome'
-    }));
+   const rowsWithNome = presencas.map((presenca) => {
+      const aluno = alunos.find((item) => item.id === presenca.aluno_id);
+      return {
+        ...presenca,
+        aluno_nome: aluno?.nome_aluno ?? 'Sem nome',
+        aluno_nr_matricula: aluno?.nr_matricula ?? null
+      };
+    });
 
-    setRows(rowsWithNome.sort((a, b) => a.aluno_nome.localeCompare(b.aluno_nome)));
+    setRows(
+      rowsWithNome.sort((a, b) => {
+        const matriculaA = a.aluno_nr_matricula ?? Number.MAX_SAFE_INTEGER;
+        const matriculaB = b.aluno_nr_matricula ?? Number.MAX_SAFE_INTEGER;
+        if (matriculaA !== matriculaB) return matriculaA - matriculaB;
+        return a.aluno_nome.localeCompare(b.aluno_nome);
+      })
+    );
   };
 
   useEffect(() => {
@@ -139,57 +139,53 @@ export default function Presencas() {
             onChange={setFilterCatequista}
             options={catequistaOptions}
             placeholder="Selecionar"
-            required
           />
-          <FormField label="Ano matrícula" value={filterAnoMatricula} onChange={setFilterAnoMatricula} type="number" required />
+          <FormField label="Ano matrícula" value={filterAnoMatricula} onChange={setFilterAnoMatricula} type="number" />
           <FormField label="Ano catecismo" value={filterAnoCatecismo} onChange={setFilterAnoCatecismo} type="number" />
         </div>
       </section>
 
       <section className="card">
         <h2>Presenças mensais</h2>
-        {!filterCatequista || !filterAnoMatricula ? (
-          <p>Selecione o catequista e o ano para ver o mapa.</p>
-        ) : (
-          <div className="table-scroll">
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>Aluno</th>
+        <div className="table-scroll">
+          <table className="table">
+            <thead>
+              <tr>
+                <th>Nº matrícula</th>
+                <th>Aluno</th>
+                {months.map((m) => (
+                  <th key={m.label} className="center">
+                    {m.label}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={row.id}>
+                  <td>{row.aluno_nr_matricula ?? '-'}</td>
+                  <td>{row.aluno_nome}</td>
                   {months.map((m) => (
-                    <th key={m.label} className="center">
-                      {m.label}
-                    </th>
+                    <td key={m.label} className="center">
+                      <div className="slot-cell">
+                        <input
+                          type="checkbox"
+                          checked={Boolean((row as any)[m.slots[0]])}
+                          onChange={(e) => handleToggle(row.id, m.slots[0], e.target.checked)}
+                        />
+                        <input
+                          type="checkbox"
+                          checked={Boolean((row as any)[m.slots[1]])}
+                          onChange={(e) => handleToggle(row.id, m.slots[1], e.target.checked)}
+                        />
+                      </div>
+                    </td>
                   ))}
                 </tr>
-              </thead>
-              <tbody>
-                {rows.map((row) => (
-                  <tr key={row.id}>
-                    <td>{row.aluno_nome}</td>
-
-                    {months.map((m) => (
-                      <td key={m.label} className="center">
-                        <div className="slot-cell">
-                          <input
-                            type="checkbox"
-                            checked={Boolean((row as any)[m.slots[0]])}
-                            onChange={(e) => handleToggle(row.id, m.slots[0], e.target.checked)}
-                          />
-                          <input
-                            type="checkbox"
-                            checked={Boolean((row as any)[m.slots[1]])}
-                            onChange={(e) => handleToggle(row.id, m.slots[1], e.target.checked)}
-                          />
-                        </div>
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+        ))}
+            </tbody>
+          </table>
+        </div>
       </section>
     </div>
   );
