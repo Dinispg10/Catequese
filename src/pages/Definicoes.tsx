@@ -161,7 +161,7 @@ export default function Definicoes() {
       <section className="grid two">
         <div className="card">
           <h2>Paróquias</h2>
-          <div className="split">
+          <div className="split vertical">
             <DataTable
               columns={[{ key: 'nome', header: 'Nome' }]}
               rows={paroquias}
@@ -193,7 +193,7 @@ export default function Definicoes() {
 
         <div className="card">
           <h2>Escolas</h2>
-          <div className="split">
+           <div className="split vertical">
             <DataTable
               columns={[{ key: 'nome', header: 'Nome' }]}
               rows={escolas}
@@ -225,7 +225,7 @@ export default function Definicoes() {
 
         <div className="card">
           <h2>Catequistas</h2>
-          <div className="split">
+          <div className="split vertical">
             <DataTable
               columns={[{ key: 'nome', header: 'Nome' }]}
               rows={catequistas}
@@ -257,7 +257,7 @@ export default function Definicoes() {
 
         <div className="card">
           <h2>Centros de Catequese</h2>
-          <div className="split">
+          <div className="split vertical">
             <DataTable
               columns={[
                 { key: 'nome', header: 'Nome' },

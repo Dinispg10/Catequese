@@ -5,9 +5,7 @@ import SelectField from '../components/SelectField';
 import FormField from '../components/FormField';
 
 const tabs = [
-  { key: 'ano', label: 'Por Ano' },
-  { key: 'catequista', label: 'Por Catequista' },
-  { key: 'centro', label: 'Por Centro' },
+  { key: 'alunos', label: 'Listagem de Alunos' },
   { key: 'presencas', label: 'Mapa de Presenças' }
 ] as const;
 
@@ -31,31 +29,25 @@ function Box({ checked }: { checked: boolean }) {
 }
 
 export default function Listagens() {
-  const [activeTab, setActiveTab] = useState<TabKey>('ano');
+  const [activeTab, setActiveTab] = useState<TabKey>('alunos');
   const [catequistas, setCatequistas] = useState<SimpleEntity[]>([]);
-  const [centros, setCentros] = useState<SimpleEntity[]>([]);
   const [filterAno, setFilterAno] = useState('');
   const [filterCatequista, setFilterCatequista] = useState('');
-  const [filterCentro, setFilterCentro] = useState('');
   const [filterAnoCatecismo, setFilterAnoCatecismo] = useState('');
   const [alunos, setAlunos] = useState<Aluno[]>([]);
   const [presencas, setPresencas] = useState<(PresencaMensal & { aluno_nome: string })[]>([]);
 
   const loadReference = async () => {
-    const [{ data: catequistasData }, { data: centrosData }] = await Promise.all([
-      supabase.from('catequistas').select('*').order('nome'),
-      supabase.from('centros_catequese').select('*').order('nome')
-    ]);
+    const { data: catequistasData } = await supabase.from('catequistas').select('*').order('nome');
     setCatequistas(catequistasData ?? []);
-    setCentros(centrosData ?? []);
   };
 
   const loadAlunos = async () => {
     let query = supabase.from('alunos').select('*').order('nome_aluno');
 
-    if (activeTab === 'ano' && filterAno) query = query.eq('ano_matricula', Number(filterAno));
-    if (activeTab === 'catequista' && filterCatequista) query = query.eq('catequista_id', filterCatequista);
-    if (activeTab === 'centro' && filterCentro) query = query.eq('centro_id', filterCentro);
+     if (filterAno) query = query.eq('ano_matricula', Number(filterAno));
+     if (filterCatequista) query = query.eq('catequista_id', filterCatequista);
+     if (filterAnoCatecismo) query = query.eq('ano_catecismo', Number(filterAnoCatecismo));
 
     const { data } = await query;
     setAlunos(data ?? []);
@@ -97,7 +89,7 @@ export default function Listagens() {
   useEffect(() => {
     if (activeTab === 'presencas') loadPresencas();
     else loadAlunos();
-  }, [activeTab, filterAno, filterCatequista, filterCentro, filterAnoCatecismo]);
+   }, [activeTab, filterAno, filterCatequista, filterAnoCatecismo]);
 
   const handlePrint = () => window.print();
 
@@ -105,11 +97,7 @@ export default function Listagens() {
     () => catequistas.map((item) => ({ value: item.id, label: item.nome })),
     [catequistas]
   );
-  const centroOptions = useMemo(
-    () => centros.map((item) => ({ value: item.id, label: item.nome })),
-    [centros]
-  );
-
+ 
   return (
     <div className="page">
       <header className="page-header">
@@ -135,30 +123,20 @@ export default function Listagens() {
       <section className="card">
         <h2>Filtros</h2>
         <div className="filters">
-          {activeTab === 'ano' && (
-            <FormField label="Ano matrícula" value={filterAno} onChange={setFilterAno} type="number" />
+          {activeTab === 'alunos' && (
+            <>
+              <SelectField
+                label="Catequista"
+                value={filterCatequista}
+                onChange={setFilterCatequista}
+                options={catequistaOptions}
+                placeholder="Selecionar"
+              />
+              <FormField label="Ano matrícula" value={filterAno} onChange={setFilterAno} type="number" />
+              <FormField label="Ano catecismo" value={filterAnoCatecismo} onChange={setFilterAnoCatecismo} type="number" />
+            </>
           )}
-
-          {activeTab === 'catequista' && (
-            <SelectField
-              label="Catequista"
-              value={filterCatequista}
-              onChange={setFilterCatequista}
-              options={catequistaOptions}
-              placeholder="Selecionar"
-            />
-          )}
-
-          {activeTab === 'centro' && (
-            <SelectField
-              label="Centro"
-              value={filterCentro}
-              onChange={setFilterCentro}
-              options={centroOptions}
-              placeholder="Selecionar"
-            />
-          )}
-
+    
           {activeTab === 'presencas' && (
             <>
               <SelectField
@@ -175,7 +153,7 @@ export default function Listagens() {
         </div>
       </section>
 
-      {activeTab !== 'presencas' && (
+      {activeTab === 'alunos' && (
         <section className="card print-area">
           <h2>Resultados</h2>
           <div className="table-scroll">

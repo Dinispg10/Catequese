@@ -12,9 +12,10 @@
   "app": {
     "windows": [
       {
-        "title": "Catequese Desktop",
+        "title": "Listagem Catequese",
         "width": 1280,
-        "height": 800
+        "height": 800,
+        "maximized": true
       }
     ],
     "security": {
