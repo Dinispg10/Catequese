@@ -11,9 +11,24 @@ const tabs = [
   { key: 'presencas', label: 'Mapa de Presenças' }
 ] as const;
 
-const months = ['Out', 'Nov', 'Dez', 'Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun'] as const;
-
 type TabKey = (typeof tabs)[number]['key'];
+
+/** 1 coluna por mês, 2 "slots" dentro */
+const months = [
+  { label: 'Out', slots: ['out_1', 'out_2'] as const },
+  { label: 'Nov', slots: ['nov_1', 'nov_2'] as const },
+  { label: 'Dez', slots: ['dez_1', 'dez_2'] as const },
+  { label: 'Jan', slots: ['jan_1', 'jan_2'] as const },
+  { label: 'Fev', slots: ['fev_1', 'fev_2'] as const },
+  { label: 'Mar', slots: ['mar_1', 'mar_2'] as const },
+  { label: 'Abr', slots: ['abr_1', 'abr_2'] as const },
+  { label: 'Mai', slots: ['mai_1', 'mai_2'] as const },
+  { label: 'Jun', slots: ['jun_1', 'jun_2'] as const }
+] as const;
+
+function Box({ checked }: { checked: boolean }) {
+  return <span className={checked ? 'box checked' : 'box'} />;
+}
 
 export default function Listagens() {
   const [activeTab, setActiveTab] = useState<TabKey>('ano');
@@ -37,15 +52,11 @@ export default function Listagens() {
 
   const loadAlunos = async () => {
     let query = supabase.from('alunos').select('*').order('nome_aluno');
-    if (activeTab === 'ano' && filterAno) {
-      query = query.eq('ano_matricula', Number(filterAno));
-    }
-    if (activeTab === 'catequista' && filterCatequista) {
-      query = query.eq('catequista_id', filterCatequista);
-    }
-    if (activeTab === 'centro' && filterCentro) {
-      query = query.eq('centro_id', filterCentro);
-    }
+
+    if (activeTab === 'ano' && filterAno) query = query.eq('ano_matricula', Number(filterAno));
+    if (activeTab === 'catequista' && filterCatequista) query = query.eq('catequista_id', filterCatequista);
+    if (activeTab === 'centro' && filterCentro) query = query.eq('centro_id', filterCentro);
+
     const { data } = await query;
     setAlunos(data ?? []);
   };
@@ -62,14 +73,14 @@ export default function Listagens() {
       .eq('catequista_id', filterCatequista)
       .eq('ano_matricula', Number(filterAno));
 
-    if (filterAnoCatecismo) {
-      query = query.eq('ano_catecismo', Number(filterAnoCatecismo));
-    }
+    if (filterAnoCatecismo) query = query.eq('ano_catecismo', Number(filterAnoCatecismo));
 
     const { data } = await query;
     const presencasData = data ?? [];
+
     const alunosIds = presencasData.map((row) => row.aluno_id);
     const { data: alunosData } = await supabase.from('alunos').select('id,nome_aluno').in('id', alunosIds);
+
     const alunosMap = new Map((alunosData ?? []).map((aluno) => [aluno.id, aluno.nome_aluno]));
     setPresencas(
       presencasData.map((row) => ({
@@ -84,22 +95,20 @@ export default function Listagens() {
   }, []);
 
   useEffect(() => {
-    if (activeTab === 'presencas') {
-      loadPresencas();
-    } else {
-      loadAlunos();
-    }
+    if (activeTab === 'presencas') loadPresencas();
+    else loadAlunos();
   }, [activeTab, filterAno, filterCatequista, filterCentro, filterAnoCatecismo]);
 
-  const handlePrint = () => {
-    window.print();
-  };
+  const handlePrint = () => window.print();
 
   const catequistaOptions = useMemo(
     () => catequistas.map((item) => ({ value: item.id, label: item.nome })),
     [catequistas]
   );
-  const centroOptions = useMemo(() => centros.map((item) => ({ value: item.id, label: item.nome })), [centros]);
+  const centroOptions = useMemo(
+    () => centros.map((item) => ({ value: item.id, label: item.nome })),
+    [centros]
+  );
 
   return (
     <div className="page">
@@ -126,7 +135,10 @@ export default function Listagens() {
       <section className="card">
         <h2>Filtros</h2>
         <div className="filters">
-          {activeTab === 'ano' && <FormField label="Ano matrícula" value={filterAno} onChange={setFilterAno} type="number" />}
+          {activeTab === 'ano' && (
+            <FormField label="Ano matrícula" value={filterAno} onChange={setFilterAno} type="number" />
+          )}
+
           {activeTab === 'catequista' && (
             <SelectField
               label="Catequista"
@@ -136,9 +148,17 @@ export default function Listagens() {
               placeholder="Selecionar"
             />
           )}
+
           {activeTab === 'centro' && (
-            <SelectField label="Centro" value={filterCentro} onChange={setFilterCentro} options={centroOptions} placeholder="Selecionar" />
+            <SelectField
+              label="Centro"
+              value={filterCentro}
+              onChange={setFilterCentro}
+              options={centroOptions}
+              placeholder="Selecionar"
+            />
           )}
+
           {activeTab === 'presencas' && (
             <>
               <SelectField
@@ -184,29 +204,37 @@ export default function Listagens() {
       {activeTab === 'presencas' && (
         <section className="card print-area">
           <h2>Mapa de Presenças</h2>
+
           <div className="table-scroll">
             <table className="table">
               <thead>
                 <tr>
                   <th>Aluno</th>
-                  {months.map((month) => (
-                    <th key={month}>{month}</th>
+                  {months.map((m) => (
+                    <th key={m.label} className="center">
+                      {m.label}
+                    </th>
                   ))}
                 </tr>
               </thead>
+
               <tbody>
                 {presencas.map((row) => (
                   <tr key={row.id}>
                     <td>{row.aluno_nome}</td>
-                    <td>{row.out ? '✓' : ''}</td>
-                    <td>{row.nov ? '✓' : ''}</td>
-                    <td>{row.dez ? '✓' : ''}</td>
-                    <td>{row.jan ? '✓' : ''}</td>
-                    <td>{row.fev ? '✓' : ''}</td>
-                    <td>{row.mar ? '✓' : ''}</td>
-                    <td>{row.abr ? '✓' : ''}</td>
-                    <td>{row.mai ? '✓' : ''}</td>
-                    <td>{row.jun ? '✓' : ''}</td>
+
+                    {months.map((m) => {
+                      const v1 = Boolean((row as any)[m.slots[0]]);
+                      const v2 = Boolean((row as any)[m.slots[1]]);
+                      return (
+                        <td key={m.label} className="center">
+                          <span className="box-pair">
+                            <Box checked={v1} />
+                            <Box checked={v2} />
+                          </span>
+                        </td>
+                      );
+                    })}
                   </tr>
                 ))}
               </tbody>

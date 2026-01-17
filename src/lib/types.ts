@@ -44,4 +44,14 @@ export interface PresencaMensal {
   abr: boolean;
   mai: boolean;
   jun: boolean;
+  out_1: boolean; out_2: boolean;
+  nov_1: boolean; nov_2: boolean;
+  dez_1: boolean; dez_2: boolean;
+  jan_1: boolean; jan_2: boolean;
+  fev_1: boolean; fev_2: boolean;
+  mar_1: boolean; mar_2: boolean;
+  abr_1: boolean; abr_2: boolean;
+  mai_1: boolean; mai_2: boolean;
+  jun_1: boolean; jun_2: boolean;
+
 }

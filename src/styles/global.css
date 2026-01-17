@@ -362,3 +362,34 @@ a {
 }
 
 .clickable-row { cursor: pointer; }
+
+.slot-cell{
+  display: inline-flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: center;
+}
+
+.box {
+  width: 14px;
+  height: 14px;
+  border: 1.5px solid #111827;
+  border-radius: 2px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.box.checked::after {
+  content: "✓";
+}
+
+.box-pair {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: center;
+}
