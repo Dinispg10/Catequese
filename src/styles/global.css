@@ -334,6 +334,11 @@ a {
     background: #fff;
   }
 
+   .shell {
+    height: auto;
+    overflow: visible;
+  }
+
   .page > :not(.print-area) {
     display: none !important;
   }
