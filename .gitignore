@@ -1,0 +1,23 @@
+# Node
+node_modules/
+dist/
+dist-*/
+
+# Tauri
+**/src-tauri/target/
+**/src-tauri/bin/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# OS
+.DS_Store
+Thumbs.db

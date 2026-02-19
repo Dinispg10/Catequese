@@ -1,0 +1,30 @@
+{
+  "$schema": "../node_modules/@tauri-apps/cli/schema.json",
+  "productName": "Catequese",
+  "version": "0.1.0",
+  "identifier": "pt.paroquia.catequese",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build",
+    "devUrl": "http://localhost:1420",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Catequese",
+        "width": 1280,
+        "height": 800,
+        "maximized": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["msi"],
+    "icon": ["icons/icon.ico"]
+  }
+}
