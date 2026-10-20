@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/schema.json",
   "productName": "Catequese",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "identifier": "pt.paroquia.catequese",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -24,8 +24,12 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["msi"],
-    "icon": ["icons/icon.ico"],
+    "targets": [
+      "msi"
+    ],
+    "icon": [
+      "icons/icon.ico"
+    ],
     "createUpdaterArtifacts": true
   },
   "plugins": {
