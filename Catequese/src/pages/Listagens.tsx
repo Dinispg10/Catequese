@@ -6,8 +6,27 @@ import FormField from '../components/FormField';
 
 const tabs = [
   { key: 'alunos', label: 'Listagem de Alunos' },
+  { key: 'fichas', label: 'Fichas Completas' },
   { key: 'presencas', label: 'Mapa de Presenças' }
 ] as const;
+
+/** As datas vêm do Supabase como AAAA-MM-DD; mostram-se como DD/MM/AAAA. */
+function formatDate(value: string | null) {
+  if (!value) return '';
+  const [ano, mes, dia] = value.slice(0, 10).split('-');
+  return dia && mes && ano ? `${dia}/${mes}/${ano}` : value;
+}
+
+/** Junta os valores preenchidos com um separador, ignorando os vazios. */
+function join(values: (string | number | null | undefined)[], sep = ' · ') {
+  return values.filter((v) => v !== null && v !== undefined && v !== '').join(sep);
+}
+
+/** Linha secundária, mais pequena, dentro de uma célula. */
+function Sub({ children }: { children: React.ReactNode }) {
+  if (!children) return null;
+  return <div className="ficha-sub">{children}</div>;
+}
 
 type TabKey = (typeof tabs)[number]['key'];
 
@@ -45,6 +64,9 @@ function PresencaCell({ value }: { value: boolean }) {
 export default function Listagens() {
   const [activeTab, setActiveTab] = useState<TabKey>('alunos');
   const [catequistas, setCatequistas] = useState<SimpleEntity[]>([]);
+  const [paroquias, setParoquias] = useState<SimpleEntity[]>([]);
+  const [escolas, setEscolas] = useState<SimpleEntity[]>([]);
+  const [centros, setCentros] = useState<SimpleEntity[]>([]);
   const [filterAno, setFilterAno] = useState('');
   const [filterCatequista, setFilterCatequista] = useState('');
   const [filterAnoCatecismo, setFilterAnoCatecismo] = useState('');
@@ -52,8 +74,16 @@ export default function Listagens() {
   const [presencas, setPresencas] = useState<(PresencaMensal & { aluno_nome: string; aluno_nr_matricula: number | null })[]>([]);
 
   const loadReference = async () => {
-    const { data: catequistasData } = await supabase.from('catequistas').select('*').order('nome');
-    setCatequistas(catequistasData ?? []);
+    const [catequistasRes, paroquiasRes, escolasRes, centrosRes] = await Promise.all([
+      supabase.from('catequistas').select('*').order('nome'),
+      supabase.from('paroquias').select('*').order('nome'),
+      supabase.from('escolas').select('*').order('nome'),
+      supabase.from('centros_catequese').select('*').order('nome')
+    ]);
+    setCatequistas(catequistasRes.data ?? []);
+    setParoquias(paroquiasRes.data ?? []);
+    setEscolas(escolasRes.data ?? []);
+    setCentros(centrosRes.data ?? []);
   };
 
   const loadAlunos = async () => {
@@ -119,6 +149,9 @@ export default function Listagens() {
     () => catequistas.map((item) => ({ value: item.id, label: item.nome })),
     [catequistas]
   );
+
+  const nomeDe = (lista: SimpleEntity[], id: string | null) =>
+    (id && lista.find((item) => item.id === id)?.nome) || '';
 
   const totalPresencas = (row: PresencaMensal) =>
     slotKeys.filter((k) => Boolean((row as any)[k])).length;
@@ -197,6 +230,74 @@ export default function Listagens() {
                     <td>{aluno.ano_matricula}</td>
                     <td>{catequistas.find((item) => item.id === aluno.catequista_id)?.nome ?? '-'}</td>
                     <td>{aluno.ano_catecismo ?? '-'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
+      {activeTab === 'fichas' && (
+        <section className="card print-area">
+          {/* Com tantas colunas, a folha só cabe deitada. */}
+          <style>{'@media print { @page { size: A4 landscape; } }'}</style>
+          <h2>
+            Fichas de inscrição — {alunos.length} aluno{alunos.length !== 1 ? 's' : ''}
+          </h2>
+          <div className="table-scroll fichas-scroll">
+            <table className="table fichas-table">
+              <thead>
+                <tr>
+                  <th>Nº</th>
+                  <th>Aluno</th>
+                  <th>Filiação</th>
+                  <th>Encarregado</th>
+                  <th>Morada</th>
+                  <th>Contactos</th>
+                  <th>Batismo</th>
+                  <th>Escola</th>
+                  <th>Catequese</th>
+                  <th>Paróquia</th>
+                </tr>
+              </thead>
+              <tbody>
+                {alunos.map((aluno) => (
+                  <tr key={aluno.id}>
+                    <td>
+                      {aluno.nr_matricula}
+                      <Sub>{aluno.ano_matricula}</Sub>
+                    </td>
+                    <td>
+                      <strong>{aluno.nome_aluno}</strong>
+                      <Sub>{join([formatDate(aluno.data_nascimento), aluno.naturalidade])}</Sub>
+                    </td>
+                    <td>
+                      {aluno.nome_pai && <div><span className="ficha-label">Pai:</span> {aluno.nome_pai}</div>}
+                      {aluno.nome_mae && <div><span className="ficha-label">Mãe:</span> {aluno.nome_mae}</div>}
+                    </td>
+                    <td>{aluno.encarregado_nome}</td>
+                    <td>
+                      {aluno.morada}
+                      <Sub>{join([aluno.codigo_postal, aluno.localidade], ' ')}</Sub>
+                    </td>
+                    <td>
+                      {aluno.telemovel}
+                      <Sub>{aluno.email}</Sub>
+                    </td>
+                    <td>
+                      {aluno.batizado ? 'Sim' : 'Não'}
+                      {aluno.batizado && <Sub>{join([formatDate(aluno.data_batismo), aluno.lugar_batismo])}</Sub>}
+                    </td>
+                    <td>
+                      {nomeDe(escolas, aluno.escola_id)}
+                      <Sub>{aluno.ano_escolar ? `${aluno.ano_escolar}º ano` : ''}</Sub>
+                    </td>
+                    <td>
+                      {aluno.ano_catecismo ? `${aluno.ano_catecismo}º ano` : ''}
+                      <Sub>{join([nomeDe(catequistas, aluno.catequista_id), nomeDe(centros, aluno.centro_id)])}</Sub>
+                    </td>
+                    <td>{nomeDe(paroquias, aluno.paroquia_id)}</td>
                   </tr>
                 ))}
               </tbody>

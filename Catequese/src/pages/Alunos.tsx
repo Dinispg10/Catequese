@@ -1,15 +1,57 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useForm, Controller } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import * as z from 'zod';
+
 import { supabase } from '../lib/supabase';
-import { Aluno, SimpleEntity } from '../lib/types';
+import { Aluno } from '../lib/types';
+import { 
+  fetchAlunos, 
+  fetchParoquias, 
+  fetchEscolas, 
+  fetchCatequistas, 
+  fetchCentros, 
+  saveAluno, 
+  deleteAluno 
+} from '../lib/api';
+
 import FormField from '../components/FormField';
 import SelectField from '../components/SelectField';
 import CheckboxField from '../components/CheckboxField';
 import DataTable from '../components/DataTable';
 import ConfirmDialog from '../components/ConfirmDialog';
 
-const emptyAluno: Aluno = {
-  id: '',
-  nr_matricula: 0,
+// Esquema de validação com Zod
+const alunoSchema = z.object({
+  id: z.string().optional(),
+  nr_matricula: z.number().optional(),
+  ano_matricula: z.coerce.number().min(1900, 'Ano inválido'),
+  paroquia_id: z.string().nullable(),
+  escola_id: z.string().nullable(),
+  centro_id: z.string().nullable(),
+  catequista_id: z.string().nullable(),
+  nome_aluno: z.string().min(1, 'O nome do aluno é obrigatório'),
+  nome_pai: z.string().nullable(),
+  nome_mae: z.string().nullable(),
+  data_nascimento: z.string().nullable(),
+  naturalidade: z.string().nullable(),
+  batizado: z.boolean().default(false),
+  data_batismo: z.string().nullable(),
+  lugar_batismo: z.string().nullable(),
+  encarregado_nome: z.string().nullable(),
+  morada: z.string().nullable(),
+  localidade: z.string().nullable(),
+  codigo_postal: z.string().nullable(),
+  telemovel: z.string().nullable(),
+  email: z.string().email('Email inválido').or(z.literal('')).nullable(),
+  ano_catecismo: z.coerce.number().nullable(),
+  ano_escolar: z.coerce.number().nullable(),
+});
+
+type AlunoFormData = z.infer<typeof alunoSchema>;
+
+const emptyAluno: AlunoFormData = {
   ano_matricula: new Date().getFullYear(),
   paroquia_id: null,
   escola_id: null,
@@ -28,7 +70,7 @@ const emptyAluno: Aluno = {
   localidade: null,
   codigo_postal: null,
   telemovel: null,
-  email: null,
+  email: '',
   ano_catecismo: null,
   ano_escolar: null,
 };
@@ -37,25 +79,30 @@ const emptyAluno: Aluno = {
 // Modal do formulário do aluno
 // ──────────────────────────────────────────────────────────────
 interface AlunoModalProps {
-  aluno: Aluno;
-  onChange: (patch: Partial<Aluno>) => void;
+  aluno: Aluno | null;
   onClose: () => void;
-  onSave: () => void;
+  onSave: (data: AlunoFormData) => void;
   onDelete: () => void;
   paroquiaOptions: { value: string; label: string }[];
   escolaOptions: { value: string; label: string }[];
   centroOptions: { value: string; label: string }[];
   catequistaOptions: { value: string; label: string }[];
-  error: string | null;
   saving: boolean;
 }
 
 function AlunoModal({
-  aluno, onChange, onClose, onSave, onDelete,
+  aluno, onClose, onSave, onDelete,
   paroquiaOptions, escolaOptions, centroOptions, catequistaOptions,
-  error, saving,
+  saving,
 }: AlunoModalProps) {
-  const isNew = !aluno.id;
+  const isNew = !aluno?.id;
+
+  const { control, handleSubmit, watch, formState: { errors } } = useForm<AlunoFormData>({
+    resolver: zodResolver(alunoSchema) as any,
+    defaultValues: (aluno || emptyAluno) as AlunoFormData,
+  });
+
+  const isBatizado = watch('batizado');
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
@@ -65,11 +112,15 @@ function AlunoModal({
 
   return (
     <div className="modal-overlay" onMouseDown={onClose}>
-      <div className="modal aluno-modal" onMouseDown={(e) => e.stopPropagation()}>
+      <form 
+        className="modal aluno-modal" 
+        onMouseDown={(e) => e.stopPropagation()} 
+        onSubmit={handleSubmit((data) => onSave(data as AlunoFormData))}
+      >
         {/* Header */}
         <div className="modal-header">
           <h3 style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 15 }}>
-            {isNew ? 'Novo Aluno' : aluno.nome_aluno || 'Editar Aluno'}
+            {isNew ? 'Novo Aluno' : aluno?.nome_aluno || 'Editar Aluno'}
             {!isNew && <span className="edit-modal-badge">Editar</span>}
           </h3>
           <button className="modal-close-btn" onClick={onClose} type="button" aria-label="Fechar">
@@ -82,109 +133,242 @@ function AlunoModal({
         {/* Body com scroll */}
         <div className="modal-body aluno-modal-body">
           <div className="form">
-
             {/* Matrícula */}
             <div className="section-title">Matrícula</div>
             <div className="grid two">
-              <FormField
-                label="Nº matrícula"
-                value={aluno.nr_matricula || ''}
-                onChange={() => undefined}
-                disabled
+              <Controller
+                name="nr_matricula"
+                control={control}
+                render={({ field }) => (
+                  <FormField label="Nº matrícula" {...field} value={field.value || ''} disabled />
+                )}
               />
-              <FormField
-                label="Ano matrícula"
-                value={aluno.ano_matricula || ''}
-                onChange={(v) => onChange({ ano_matricula: Number(v) })}
-                type="number"
-                required
-              />
-            </div>
-            <div className="grid two">
-              <SelectField
-                label="Paróquia"
-                value={aluno.paroquia_id ?? ''}
-                onChange={(v) => onChange({ paroquia_id: v || null })}
-                options={paroquiaOptions}
-                placeholder="Selecionar"
-              />
-              <SelectField
-                label="Escola"
-                value={aluno.escola_id ?? ''}
-                onChange={(v) => onChange({ escola_id: v || null })}
-                options={escolaOptions}
-                placeholder="Selecionar"
+              <Controller
+                name="ano_matricula"
+                control={control}
+                render={({ field }) => (
+                  <FormField 
+                    label="Ano matrícula" 
+                    {...field} 
+                    type="number" 
+                    required 
+                    error={errors.ano_matricula?.message}
+                  />
+                )}
               />
             </div>
+
             <div className="grid two">
-              <SelectField
-                label="Centro"
-                value={aluno.centro_id ?? ''}
-                onChange={(v) => onChange({ centro_id: v || null })}
-                options={centroOptions}
-                placeholder="Selecionar"
+              <Controller
+                name="paroquia_id"
+                control={control}
+                render={({ field }) => (
+                  <SelectField
+                    label="Paróquia"
+                    {...field}
+                    value={field.value ?? ''}
+                    options={paroquiaOptions}
+                    placeholder="Selecionar"
+                  />
+                )}
               />
-              <SelectField
-                label="Catequista"
-                value={aluno.catequista_id ?? ''}
-                onChange={(v) => onChange({ catequista_id: v || null })}
-                options={catequistaOptions}
-                placeholder="Selecionar"
+              <Controller
+                name="escola_id"
+                control={control}
+                render={({ field }) => (
+                  <SelectField
+                    label="Escola"
+                    {...field}
+                    value={field.value ?? ''}
+                    options={escolaOptions}
+                    placeholder="Selecionar"
+                  />
+                )}
+              />
+            </div>
+
+            <div className="grid two">
+              <Controller
+                name="centro_id"
+                control={control}
+                render={({ field }) => (
+                  <SelectField
+                    label="Centro"
+                    {...field}
+                    value={field.value ?? ''}
+                    options={centroOptions}
+                    placeholder="Selecionar"
+                  />
+                )}
+              />
+              <Controller
+                name="catequista_id"
+                control={control}
+                render={({ field }) => (
+                  <SelectField
+                    label="Catequista"
+                    {...field}
+                    value={field.value ?? ''}
+                    options={catequistaOptions}
+                    placeholder="Selecionar"
+                  />
+                )}
               />
             </div>
 
             {/* Dados pessoais */}
             <div className="section-title">Dados pessoais</div>
-            <FormField
-              label="Nome do aluno"
-              value={aluno.nome_aluno}
-              onChange={(v) => onChange({ nome_aluno: v })}
-              required
+            <Controller
+              name="nome_aluno"
+              control={control}
+              render={({ field }) => (
+                <FormField 
+                  label="Nome do aluno" 
+                  {...field} 
+                  required 
+                  error={errors.nome_aluno?.message}
+                />
+              )}
             />
+
             <div className="grid two">
-              <FormField label="Nome do pai" value={aluno.nome_pai ?? ''} onChange={(v) => onChange({ nome_pai: v })} />
-              <FormField label="Nome da mãe" value={aluno.nome_mae ?? ''} onChange={(v) => onChange({ nome_mae: v })} />
-            </div>
-            <div className="grid two">
-              <FormField label="Data nascimento" value={aluno.data_nascimento ?? ''} onChange={(v) => onChange({ data_nascimento: v })} type="date" />
-              <FormField label="Naturalidade" value={aluno.naturalidade ?? ''} onChange={(v) => onChange({ naturalidade: v })} />
+              <Controller
+                name="nome_pai"
+                control={control}
+                render={({ field }) => (
+                  <FormField label="Nome do pai" {...field} value={field.value ?? ''} />
+                )}
+              />
+              <Controller
+                name="nome_mae"
+                control={control}
+                render={({ field }) => (
+                  <FormField label="Nome da mãe" {...field} value={field.value ?? ''} />
+                )}
+              />
             </div>
 
-            <CheckboxField
-              label="Batizado(a)"
-              checked={aluno.batizado}
-              onChange={(v) => onChange({ batizado: v })}
+            <div className="grid two">
+              <Controller
+                name="data_nascimento"
+                control={control}
+                render={({ field }) => (
+                  <FormField label="Data nascimento" {...field} value={field.value ?? ''} type="date" />
+                )}
+              />
+              <Controller
+                name="naturalidade"
+                control={control}
+                render={({ field }) => (
+                  <FormField label="Naturalidade" {...field} value={field.value ?? ''} />
+                )}
+              />
+            </div>
+
+            <Controller
+              name="batizado"
+              control={control}
+              render={({ field }) => (
+                <CheckboxField
+                  label="Batizado(a)"
+                  checked={field.value}
+                  onChange={field.onChange}
+                />
+              )}
             />
-            {aluno.batizado && (
+
+            {isBatizado && (
               <div className="grid two">
-                <FormField label="Data batismo" value={aluno.data_batismo ?? ''} onChange={(v) => onChange({ data_batismo: v })} type="date" />
-                <FormField label="Lugar batismo" value={aluno.lugar_batismo ?? ''} onChange={(v) => onChange({ lugar_batismo: v })} />
+                <Controller
+                  name="data_batismo"
+                  control={control}
+                  render={({ field }) => (
+                    <FormField label="Data batismo" {...field} value={field.value ?? ''} type="date" />
+                  )}
+                />
+                <Controller
+                  name="lugar_batismo"
+                  control={control}
+                  render={({ field }) => (
+                    <FormField label="Lugar batismo" {...field} value={field.value ?? ''} />
+                  )}
+                />
               </div>
             )}
 
             {/* Contactos */}
             <div className="section-title">Contactos</div>
-            <FormField label="Encarregado" value={aluno.encarregado_nome ?? ''} onChange={(v) => onChange({ encarregado_nome: v })} />
-            <FormField label="Morada" value={aluno.morada ?? ''} onChange={(v) => onChange({ morada: v })} />
+            <Controller
+              name="encarregado_nome"
+              control={control}
+              render={({ field }) => (
+                <FormField label="Encarregado" {...field} value={field.value ?? ''} />
+              )}
+            />
+            <Controller
+              name="morada"
+              control={control}
+              render={({ field }) => (
+                <FormField label="Morada" {...field} value={field.value ?? ''} />
+              )}
+            />
             <div className="grid two">
-              <FormField label="Localidade" value={aluno.localidade ?? ''} onChange={(v) => onChange({ localidade: v })} />
-              <FormField label="Código postal" value={aluno.codigo_postal ?? ''} onChange={(v) => onChange({ codigo_postal: v })} />
+              <Controller
+                name="localidade"
+                control={control}
+                render={({ field }) => (
+                  <FormField label="Localidade" {...field} value={field.value ?? ''} />
+                )}
+              />
+              <Controller
+                name="codigo_postal"
+                control={control}
+                render={({ field }) => (
+                  <FormField label="Código postal" {...field} value={field.value ?? ''} />
+                )}
+              />
             </div>
             <div className="grid two">
-              <FormField label="Telemóvel" value={aluno.telemovel ?? ''} onChange={(v) => onChange({ telemovel: v })} />
-              <FormField label="Email" value={aluno.email ?? ''} onChange={(v) => onChange({ email: v })} />
+              <Controller
+                name="telemovel"
+                control={control}
+                render={({ field }) => (
+                  <FormField label="Telemóvel" {...field} value={field.value ?? ''} />
+                )}
+              />
+              <Controller
+                name="email"
+                control={control}
+                render={({ field }) => (
+                  <FormField 
+                    label="Email" 
+                    {...field} 
+                    value={field.value ?? ''} 
+                    error={errors.email?.message}
+                  />
+                )}
+              />
             </div>
 
             {/* Catequese */}
             <div className="section-title">Catequese</div>
             <div className="grid two">
-              <FormField label="Ano catecismo" value={aluno.ano_catecismo ?? ''} onChange={(v) => onChange({ ano_catecismo: v ? Number(v) : null })} type="number" />
-              <FormField label="Ano escolar" value={aluno.ano_escolar ?? ''} onChange={(v) => onChange({ ano_escolar: v ? Number(v) : null })} type="number" />
+              <Controller
+                name="ano_catecismo"
+                control={control}
+                render={({ field }) => (
+                  <FormField label="Ano catecismo" {...field} value={field.value ?? ''} type="number" />
+                )}
+              />
+              <Controller
+                name="ano_escolar"
+                control={control}
+                render={({ field }) => (
+                  <FormField label="Ano escolar" {...field} value={field.value ?? ''} type="number" />
+                )}
+              />
             </div>
-
           </div>
-
-          {error && <div className="alert" style={{ marginTop: 12 }}>{error}</div>}
         </div>
 
         {/* Ações */}
@@ -198,11 +382,11 @@ function AlunoModal({
           <button type="button" className="button secondary" onClick={onClose}>
             Cancelar
           </button>
-          <button type="button" className="button" onClick={onSave} disabled={saving}>
+          <button type="submit" className="button" disabled={saving}>
             {saving ? 'A guardar…' : isNew ? 'Criar' : 'Guardar'}
           </button>
         </div>
-      </div>
+      </form>
     </div>
   );
 }
@@ -211,126 +395,65 @@ function AlunoModal({
 // Página principal
 // ──────────────────────────────────────────────────────────────
 export default function Alunos() {
-  const [alunos, setAlunos] = useState<Aluno[]>([]);
-  const [paroquias, setParoquias] = useState<SimpleEntity[]>([]);
-  const [escolas, setEscolas] = useState<SimpleEntity[]>([]);
-  const [catequistas, setCatequistas] = useState<SimpleEntity[]>([]);
-  const [centros, setCentros] = useState<SimpleEntity[]>([]);
-
+  const queryClient = useQueryClient();
   const [filterAno, setFilterAno] = useState('');
   const [filterCatequista, setFilterCatequista] = useState('');
   const [filterCentro, setFilterCentro] = useState('');
   const [search, setSearch] = useState('');
 
-  const [loading, setLoading] = useState(false);
   const [modalAluno, setModalAluno] = useState<Aluno | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const [modalError, setModalError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
 
-  const refreshTimeout = useRef<number | null>(null);
+  // Queries
+  const { data: paroquias = [] } = useQuery({ queryKey: ['paroquias'], queryFn: fetchParoquias });
+  const { data: escolas = [] } = useQuery({ queryKey: ['escolas'], queryFn: fetchEscolas });
+  const { data: catequistas = [] } = useQuery({ queryKey: ['catequistas'], queryFn: fetchCatequistas });
+  const { data: centros = [] } = useQuery({ queryKey: ['centros'], queryFn: fetchCentros });
 
-  const loadReference = async () => {
-    const [
-      { data: paroquiasData },
-      { data: escolasData },
-      { data: catequistasData },
-      { data: centrosData },
-    ] = await Promise.all([
-      supabase.from('paroquias').select('*').order('nome'),
-      supabase.from('escolas').select('*').order('nome'),
-      supabase.from('catequistas').select('*').order('nome'),
-      supabase.from('centros_catequese').select('*').order('nome'),
-    ]);
-    setParoquias(paroquiasData ?? []);
-    setEscolas(escolasData ?? []);
-    setCatequistas(catequistasData ?? []);
-    setCentros(centrosData ?? []);
-  };
+  const { data: alunos = [], isLoading: loadingAlunos } = useQuery({
+    queryKey: ['alunos', { filterAno, filterCatequista, filterCentro, search }],
+    queryFn: () => fetchAlunos({ 
+      ano_matricula: filterAno ? Number(filterAno) : undefined, 
+      catequista_id: filterCatequista || undefined, 
+      centro_id: filterCentro || undefined, 
+      search 
+    }),
+  });
 
-  const loadAlunos = async () => {
-    setLoading(true);
-    let query = supabase.from('alunos').select('*').order('nr_matricula').order('nome_aluno');
-    if (filterAno) query = query.eq('ano_matricula', Number(filterAno));
-    if (filterCatequista) query = query.eq('catequista_id', filterCatequista);
-    if (filterCentro) query = query.eq('centro_id', filterCentro);
-    if (search.trim()) query = query.ilike('nome_aluno', `%${search.trim()}%`);
-    const { data } = await query;
-    setAlunos(data ?? []);
-    setLoading(false);
-  };
+  // Mutations
+  const saveMutation = useMutation({
+    mutationFn: saveAluno,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['alunos'] });
+      setModalAluno(null);
+    },
+  });
 
-  useEffect(() => { loadReference(); }, []);
-  useEffect(() => { loadAlunos(); }, [filterAno, filterCatequista, filterCentro, search]);
+  const deleteMutation = useMutation({
+    mutationFn: deleteAluno,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['alunos'] });
+      setConfirmDelete(false);
+      setModalAluno(null);
+    },
+  });
 
+  // Real-time updates
   useEffect(() => {
     const channel = supabase
       .channel('alunos-changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'alunos' }, () => {
-        if (refreshTimeout.current) window.clearTimeout(refreshTimeout.current);
-        refreshTimeout.current = window.setTimeout(() => loadAlunos(), 300);
+        queryClient.invalidateQueries({ queryKey: ['alunos'] });
       })
       .subscribe();
     return () => {
-      if (refreshTimeout.current) window.clearTimeout(refreshTimeout.current);
       supabase.removeChannel(channel);
     };
-  }, [filterAno, filterCatequista, filterCentro, search]);
+  }, [queryClient]);
 
-  const openNew = () => { setModalError(null); setModalAluno({ ...emptyAluno }); };
-  const openEdit = (aluno: Aluno) => { setModalError(null); setModalAluno({ ...aluno }); };
-  const closeModal = () => { setModalAluno(null); setModalError(null); };
-
-  const handleSave = async () => {
-    if (!modalAluno) return;
-    setModalError(null);
-
-    if (!modalAluno.nome_aluno.trim()) { setModalError('O nome do aluno é obrigatório.'); return; }
-    if (!modalAluno.ano_matricula) { setModalError('O ano de matrícula é obrigatório.'); return; }
-
-    setSaving(true);
-    const payload = {
-      ano_matricula: Number(modalAluno.ano_matricula),
-      paroquia_id: modalAluno.paroquia_id,
-      escola_id: modalAluno.escola_id,
-      centro_id: modalAluno.centro_id,
-      catequista_id: modalAluno.catequista_id,
-      nome_aluno: modalAluno.nome_aluno,
-      nome_pai: modalAluno.nome_pai,
-      nome_mae: modalAluno.nome_mae,
-      data_nascimento: modalAluno.data_nascimento,
-      naturalidade: modalAluno.naturalidade,
-      batizado: modalAluno.batizado,
-      data_batismo: modalAluno.batizado ? modalAluno.data_batismo : null,
-      lugar_batismo: modalAluno.batizado ? modalAluno.lugar_batismo : null,
-      encarregado_nome: modalAluno.encarregado_nome,
-      morada: modalAluno.morada,
-      localidade: modalAluno.localidade,
-      codigo_postal: modalAluno.codigo_postal,
-      telemovel: modalAluno.telemovel,
-      email: modalAluno.email,
-      ano_catecismo: modalAluno.ano_catecismo ? Number(modalAluno.ano_catecismo) : null,
-      ano_escolar: modalAluno.ano_escolar ? Number(modalAluno.ano_escolar) : null,
-    };
-
-    if (modalAluno.id) {
-      await supabase.from('alunos').update(payload).eq('id', modalAluno.id);
-    } else {
-      await supabase.from('alunos').insert(payload);
-    }
-
-    setSaving(false);
-    closeModal();
-    await loadAlunos();
-  };
-
-  const handleDelete = async () => {
-    if (!modalAluno?.id) return;
-    await supabase.from('alunos').delete().eq('id', modalAluno.id);
-    setConfirmDelete(false);
-    closeModal();
-    await loadAlunos();
-  };
+  const openNew = () => setModalAluno({} as Aluno);
+  const openEdit = (aluno: Aluno) => setModalAluno(aluno);
+  const closeModal = () => setModalAluno(null);
 
   const catequistaOptions = useMemo(() => catequistas.map((i) => ({ value: i.id, label: i.nome })), [catequistas]);
   const centroOptions = useMemo(() => centros.map((i) => ({ value: i.id, label: i.nome })), [centros]);
@@ -355,10 +478,10 @@ export default function Alunos() {
           <span className="defn-card-title">Filtros</span>
         </div>
         <div className="filters" style={{ marginTop: 12 }}>
-          <FormField label="Ano matrícula" value={filterAno} onChange={setFilterAno} type="number" />
-          <SelectField label="Catequista" value={filterCatequista} onChange={setFilterCatequista} options={catequistaOptions} placeholder="Todos" />
-          <SelectField label="Centro" value={filterCentro} onChange={setFilterCentro} options={centroOptions} placeholder="Todos" />
-          <FormField label="Pesquisar" value={search} onChange={setSearch} placeholder="Nome do aluno" />
+          <FormField label="Ano matrícula" value={filterAno} onChange={(v) => setFilterAno(v)} type="number" />
+          <SelectField label="Catequista" value={filterCatequista} onChange={(v) => setFilterCatequista(v)} options={catequistaOptions} placeholder="Todos" />
+          <SelectField label="Centro" value={filterCentro} onChange={(v) => setFilterCentro(v)} options={centroOptions} placeholder="Todos" />
+          <FormField label="Pesquisar" value={search} onChange={(v) => setSearch(v)} placeholder="Nome do aluno" />
         </div>
       </section>
 
@@ -366,7 +489,7 @@ export default function Alunos() {
       <section className="card">
         <div className="defn-card-header">
           <span className="defn-card-title">
-            {loading ? 'A carregar…' : `${alunos.length} aluno${alunos.length !== 1 ? 's' : ''}`}
+            {loadingAlunos ? 'A carregar…' : `${alunos.length} aluno${alunos.length !== 1 ? 's' : ''}`}
           </span>
         </div>
         <DataTable
@@ -389,7 +512,7 @@ export default function Alunos() {
           getRowId={(row) => row.id}
           selectedId={modalAluno?.id}
           onRowClick={openEdit}
-          loading={loading}
+          loading={loadingAlunos}
           emptyMessage="Nenhum aluno encontrado. Muda os filtros ou cria um novo aluno."
         />
       </section>
@@ -397,17 +520,15 @@ export default function Alunos() {
       {/* Modal do aluno */}
       {modalAluno && (
         <AlunoModal
-          aluno={modalAluno}
-          onChange={(patch) => setModalAluno((prev) => prev ? { ...prev, ...patch } : prev)}
+          aluno={modalAluno.id ? modalAluno : null}
           onClose={closeModal}
-          onSave={handleSave}
+          onSave={(data) => saveMutation.mutate(data)}
           onDelete={() => setConfirmDelete(true)}
           paroquiaOptions={paroquiaOptions}
           escolaOptions={escolaOptions}
           centroOptions={centroOptions}
           catequistaOptions={catequistaOptions}
-          error={modalError}
-          saving={saving}
+          saving={saveMutation.isPending}
         />
       )}
 
@@ -416,7 +537,7 @@ export default function Alunos() {
         title="Confirmar remoção"
         description="Tem a certeza que quer eliminar este aluno? Esta ação é irreversível."
         onCancel={() => setConfirmDelete(false)}
-        onConfirm={handleDelete}
+        onConfirm={() => modalAluno?.id && deleteMutation.mutate(modalAluno.id)}
       />
     </div>
   );

@@ -1,5 +1,6 @@
 import { NavLink, Outlet } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
+import BotaoAtualizar from './BotaoAtualizar';
 
 const icons = {
   alunos: (
@@ -39,8 +40,8 @@ const icons = {
     </svg>
   ),
   cross: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M12 2v20M2 12h20" />
+    <svg viewBox="0 0 24 24" fill="currentColor">
+      <path d="M11 2h2v5h5v2h-5v13h-2v-13h-5v-2h5z" />
     </svg>
   ),
 };
@@ -79,6 +80,7 @@ export default function AppShell() {
         </nav>
 
         <div className="sidebar-footer">
+          <BotaoAtualizar />
           <button className="button" onClick={signOut} type="button">
             {icons.logout}
             Terminar sessão

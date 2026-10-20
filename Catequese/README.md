@@ -30,6 +30,41 @@ npm run tauri:dev
 npm run tauri:build
 ```
 
+## Atualizações automáticas
+
+As apps instaladas procuram versões novas sozinhas ao abrir (e no botão "Procurar
+atualizações" no fundo da barra lateral). As versões são publicadas pelo GitHub Actions
+(`.github/workflows/release.yml`, na raiz do repositório) no repositório **público**
+`Dinispg10/Catequese` — tem de ser público para as apps conseguirem descarregar o
+`latest.json` sem login.
+
+### Publicar uma versão nova
+
+```bash
+npm run versao 0.2.0
+git commit -am "Versão 0.2.0"
+git tag v0.2.0
+git push && git push --tags
+```
+
+O workflow recusa-se a publicar se a tag não bater com a versão do `tauri.conf.json`.
+
+### Segredos no GitHub (Settings → Secrets and variables → Actions)
+
+| Segredo | De onde vem |
+|---|---|
+| `TAURI_SIGNING_PRIVATE_KEY` | conteúdo de `~/.tauri/catequese.key` |
+| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | conteúdo de `~/.tauri/catequese.key.password.txt` |
+| `VITE_SUPABASE_URL` | o mesmo do `.env` |
+| `VITE_SUPABASE_ANON_KEY` | o mesmo do `.env` |
+
+### ⚠ Não percas a chave de assinatura
+
+As apps só aceitam atualizações assinadas com `~/.tauri/catequese.key`. Se a chave ou a
+palavra-passe se perderem, as apps já instaladas nunca mais se atualizam e é preciso
+reinstalar à mão em todos os computadores. Guarda os dois ficheiros num sítio seguro fora
+deste computador. A chave **nunca** vai para o repositório.
+
 ## Notas
 
 - A app usa login partilhado (uma conta) com RLS ativa.
