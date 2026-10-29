@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/schema.json",
   "productName": "Catequese",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "identifier": "pt.paroquia.catequese",
   "build": {
     "beforeDevCommand": "npm run dev",
