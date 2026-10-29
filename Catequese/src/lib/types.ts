@@ -29,6 +29,9 @@ export interface Aluno {
   ano_escolar: number | null;
 }
 
+/** Uma sessão: null = ainda não marcada, true = presente, false = falta. */
+export type Presenca = boolean | null;
+
 export interface PresencaMensal {
   id: string;
   aluno_id: string;
@@ -44,14 +47,14 @@ export interface PresencaMensal {
   abr: boolean;
   mai: boolean;
   jun: boolean;
-  out_1: boolean; out_2: boolean;
-  nov_1: boolean; nov_2: boolean;
-  dez_1: boolean; dez_2: boolean;
-  jan_1: boolean; jan_2: boolean;
-  fev_1: boolean; fev_2: boolean;
-  mar_1: boolean; mar_2: boolean;
-  abr_1: boolean; abr_2: boolean;
-  mai_1: boolean; mai_2: boolean;
-  jun_1: boolean; jun_2: boolean;
+  out_1: Presenca; out_2: Presenca;
+  nov_1: Presenca; nov_2: Presenca;
+  dez_1: Presenca; dez_2: Presenca;
+  jan_1: Presenca; jan_2: Presenca;
+  fev_1: Presenca; fev_2: Presenca;
+  mar_1: Presenca; mar_2: Presenca;
+  abr_1: Presenca; abr_2: Presenca;
+  mai_1: Presenca; mai_2: Presenca;
+  jun_1: Presenca; jun_2: Presenca;
 
 }

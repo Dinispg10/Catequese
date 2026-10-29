@@ -6,8 +6,12 @@ export interface AlunoFilters {
   ano_matricula?: number;
   catequista_id?: string;
   centro_id?: string;
+  ano_catecismo?: number;
   search?: string;
 }
+
+// Colunas onde a pesquisa procura: o aluno, a família e o telemóvel.
+const searchColumns = ['nome_aluno', 'nome_pai', 'nome_mae', 'encarregado_nome', 'telemovel'];
 
 export async function fetchParoquias() {
   const { data, error } = await supabase.from('paroquias').select('*').order('nome');
@@ -39,7 +43,11 @@ export async function fetchAlunos(filters: AlunoFilters) {
   if (filters.ano_matricula) query = query.eq('ano_matricula', filters.ano_matricula);
   if (filters.catequista_id) query = query.eq('catequista_id', filters.catequista_id);
   if (filters.centro_id) query = query.eq('centro_id', filters.centro_id);
-  if (filters.search?.trim()) query = query.ilike('nome_aluno', `%${filters.search.trim()}%`);
+  if (filters.ano_catecismo) query = query.eq('ano_catecismo', filters.ano_catecismo);
+
+  // Vírgulas, parênteses e afins têm significado no filtro "or" do Supabase.
+  const search = filters.search?.replace(/[,()*%\\"]/g, ' ').trim();
+  if (search) query = query.or(searchColumns.map((col) => `${col}.ilike.%${search}%`).join(','));
 
   const { data, error } = await query;
   if (error) throw new Error(error.message);

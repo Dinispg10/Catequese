@@ -21,6 +21,8 @@ import SelectField from '../components/SelectField';
 import CheckboxField from '../components/CheckboxField';
 import DataTable from '../components/DataTable';
 import ConfirmDialog from '../components/ConfirmDialog';
+import ChipSelect from '../components/ChipSelect';
+import { anoCatecismoOptions, anoMatriculaOptions, idade, iniciais, join } from '../lib/format';
 
 // Esquema de validação com Zod
 const alunoSchema = z.object({
@@ -397,12 +399,21 @@ function AlunoModal({
 export default function Alunos() {
   const queryClient = useQueryClient();
   const [filterAno, setFilterAno] = useState('');
+  const [filterAnoCatecismo, setFilterAnoCatecismo] = useState('');
   const [filterCatequista, setFilterCatequista] = useState('');
   const [filterCentro, setFilterCentro] = useState('');
   const [search, setSearch] = useState('');
+  const [searchDebounced, setSearchDebounced] = useState('');
+  const searchRef = useRef<HTMLInputElement>(null);
 
   const [modalAluno, setModalAluno] = useState<Aluno | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+
+  // Só pesquisa quando se pára de escrever, em vez de a cada tecla.
+  useEffect(() => {
+    const timer = window.setTimeout(() => setSearchDebounced(search), 250);
+    return () => window.clearTimeout(timer);
+  }, [search]);
 
   // Queries
   const { data: paroquias = [] } = useQuery({ queryKey: ['paroquias'], queryFn: fetchParoquias });
@@ -411,12 +422,13 @@ export default function Alunos() {
   const { data: centros = [] } = useQuery({ queryKey: ['centros'], queryFn: fetchCentros });
 
   const { data: alunos = [], isLoading: loadingAlunos } = useQuery({
-    queryKey: ['alunos', { filterAno, filterCatequista, filterCentro, search }],
-    queryFn: () => fetchAlunos({ 
-      ano_matricula: filterAno ? Number(filterAno) : undefined, 
-      catequista_id: filterCatequista || undefined, 
-      centro_id: filterCentro || undefined, 
-      search 
+    queryKey: ['alunos', { filterAno, filterAnoCatecismo, filterCatequista, filterCentro, searchDebounced }],
+    queryFn: () => fetchAlunos({
+      ano_matricula: filterAno ? Number(filterAno) : undefined,
+      ano_catecismo: filterAnoCatecismo ? Number(filterAnoCatecismo) : undefined,
+      catequista_id: filterCatequista || undefined,
+      centro_id: filterCentro || undefined,
+      search: searchDebounced
     }),
   });
 
@@ -460,10 +472,26 @@ export default function Alunos() {
   const paroquiaOptions = useMemo(() => paroquias.map((i) => ({ value: i.id, label: i.nome })), [paroquias]);
   const escolaOptions = useMemo(() => escolas.map((i) => ({ value: i.id, label: i.nome })), [escolas]);
 
+  const temFiltros = Boolean(filterAno || filterAnoCatecismo || filterCatequista || filterCentro || search);
+  const limparFiltros = () => {
+    setFilterAno('');
+    setFilterAnoCatecismo('');
+    setFilterCatequista('');
+    setFilterCentro('');
+    setSearch('');
+    searchRef.current?.focus();
+  };
+
+  const nomeCatequista = (id: string | null) => catequistas.find((i) => i.id === id)?.nome;
+  const nomeCentro = (id: string | null) => centros.find((i) => i.id === id)?.nome;
+
   return (
     <div className="page">
       <header className="page-header">
-        <h1>Matrículas / Alunos</h1>
+        <div>
+          <h1>Matrículas / Alunos</h1>
+          <p className="page-subtitle">Procura um aluno para abrir a ficha, ou cria uma inscrição nova.</p>
+        </div>
         <button className="button" type="button" onClick={openNew}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" width="15" height="15">
             <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
@@ -472,40 +500,102 @@ export default function Alunos() {
         </button>
       </header>
 
-      {/* Filtros */}
-      <section className="card">
-        <div className="defn-card-header" style={{ marginBottom: 0 }}>
-          <span className="defn-card-title">Filtros</span>
+      {/* Pesquisa e filtros */}
+      <section className="search-panel">
+        <div className="search-box">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="11" cy="11" r="7" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
+          </svg>
+          <input
+            ref={searchRef}
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Procurar por nome do aluno, dos pais, do encarregado ou telemóvel…"
+            autoFocus
+          />
+          {search && (
+            <button type="button" className="search-clear" onClick={() => setSearch('')} aria-label="Limpar pesquisa">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="14" height="14">
+                <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </button>
+          )}
         </div>
-        <div className="filters" style={{ marginTop: 12 }}>
-          <FormField label="Ano matrícula" value={filterAno} onChange={(v) => setFilterAno(v)} type="number" />
-          <SelectField label="Catequista" value={filterCatequista} onChange={(v) => setFilterCatequista(v)} options={catequistaOptions} placeholder="Todos" />
-          <SelectField label="Centro" value={filterCentro} onChange={(v) => setFilterCentro(v)} options={centroOptions} placeholder="Todos" />
-          <FormField label="Pesquisar" value={search} onChange={(v) => setSearch(v)} placeholder="Nome do aluno" />
+        <div className="chips chips--lg">
+          <ChipSelect label="Ano" value={filterAno} onChange={setFilterAno} options={anoMatriculaOptions} />
+          <ChipSelect label="Catecismo" value={filterAnoCatecismo} onChange={setFilterAnoCatecismo} options={anoCatecismoOptions} />
+          <ChipSelect label="Catequista" value={filterCatequista} onChange={setFilterCatequista} options={catequistaOptions} />
+          <ChipSelect label="Centro" value={filterCentro} onChange={setFilterCentro} options={centroOptions} />
         </div>
       </section>
 
       {/* Lista */}
-      <section className="card">
-        <div className="defn-card-header">
+      <section className="card card--flush">
+        <div className="card-toolbar">
           <span className="defn-card-title">
             {loadingAlunos ? 'A carregar…' : `${alunos.length} aluno${alunos.length !== 1 ? 's' : ''}`}
           </span>
+          {temFiltros && (
+            <button type="button" className="chip-clear" onClick={limparFiltros}>
+              Limpar filtros
+            </button>
+          )}
         </div>
         <DataTable
           columns={[
-            { key: 'nr_matricula', header: 'Nº' },
-            { key: 'nome_aluno', header: 'Nome' },
-            { key: 'ano_matricula', header: 'Ano' },
+            {
+              key: 'nr_matricula',
+              header: 'Nº',
+              render: (row) => <span className="cell-num">{row.nr_matricula}</span>,
+            },
+            {
+              key: 'nome_aluno',
+              header: 'Aluno',
+              render: (row) => {
+                const anos = idade(row.data_nascimento);
+                return (
+                  <div className="aluno-cell">
+                    <span className="avatar">{iniciais(row.nome_aluno)}</span>
+                    <div>
+                      <div className="aluno-nome">
+                        {row.nome_aluno}
+                        {!row.batizado && <span className="tag tag--warning">Por batizar</span>}
+                      </div>
+                      <div className="cell-sub">{join([anos !== null ? `${anos} anos` : null, row.naturalidade])}</div>
+                    </div>
+                  </div>
+                );
+              },
+            },
+            {
+              key: 'ano_catecismo',
+              header: 'Catecismo',
+              render: (row) => (
+                <>
+                  {row.ano_catecismo ? <span className="tag tag--brand">{row.ano_catecismo}º ano</span> : <span className="cell-empty">—</span>}
+                  <div className="cell-sub">Matrícula {row.ano_matricula}</div>
+                </>
+              ),
+            },
             {
               key: 'catequista_id',
               header: 'Catequista',
-              render: (row) => catequistas.find((i) => i.id === row.catequista_id)?.nome ?? '—',
+              render: (row) => (
+                <>
+                  {nomeCatequista(row.catequista_id) ?? <span className="cell-empty">Sem catequista</span>}
+                  <div className="cell-sub">{nomeCentro(row.centro_id)}</div>
+                </>
+              ),
             },
             {
-              key: 'centro_id',
-              header: 'Centro',
-              render: (row) => centros.find((i) => i.id === row.centro_id)?.nome ?? '—',
+              key: 'telemovel',
+              header: 'Contacto',
+              render: (row) => (
+                <>
+                  {row.telemovel || row.email || <span className="cell-empty">Sem contacto</span>}
+                  <div className="cell-sub">{row.encarregado_nome}</div>
+                </>
+              ),
             },
           ]}
           rows={alunos}
@@ -513,7 +603,9 @@ export default function Alunos() {
           selectedId={modalAluno?.id}
           onRowClick={openEdit}
           loading={loadingAlunos}
-          emptyMessage="Nenhum aluno encontrado. Muda os filtros ou cria um novo aluno."
+          emptyMessage={temFiltros
+            ? 'Nenhum aluno encontrado com esta pesquisa.'
+            : 'Ainda não há alunos. Carrega em "Novo aluno" para criar o primeiro.'}
         />
       </section>
 

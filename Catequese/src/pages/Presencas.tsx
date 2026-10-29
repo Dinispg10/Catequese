@@ -1,52 +1,32 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
-import { Aluno, PresencaMensal, SimpleEntity } from '../lib/types';
-import SelectField from '../components/SelectField';
-import FormField from '../components/FormField';
+import { Aluno, Presenca, PresencaMensal } from '../lib/types';
+import { fetchCatequistas } from '../lib/api';
+import { anoCatecismoOptions, anoMatriculaOptions, iniciais } from '../lib/format';
+import { months, totalPresencas, type SlotKey } from '../lib/presencas';
+import ChipSelect from '../components/ChipSelect';
+import PresencaCell from '../components/PresencaCell';
 
 interface PresencaRow extends PresencaMensal {
   aluno_nome: string;
-  aluno_nr_matricula: number | null;
 }
 
-const months = [
-  { label: 'Out', slots: ['out_1', 'out_2'] as const },
-  { label: 'Nov', slots: ['nov_1', 'nov_2'] as const },
-  { label: 'Dez', slots: ['dez_1', 'dez_2'] as const },
-  { label: 'Jan', slots: ['jan_1', 'jan_2'] as const },
-  { label: 'Fev', slots: ['fev_1', 'fev_2'] as const },
-  { label: 'Mar', slots: ['mar_1', 'mar_2'] as const },
-  { label: 'Abr', slots: ['abr_1', 'abr_2'] as const },
-  { label: 'Mai', slots: ['mai_1', 'mai_2'] as const },
-  { label: 'Jun', slots: ['jun_1', 'jun_2'] as const },
-] as const;
-
-type SlotKey = (typeof months)[number]['slots'][number];
-
-// Célula de presença clicável e colorida
-function PresencaCell({ value, onChange }: { value: boolean; onChange: (v: boolean) => void }) {
-  return (
-    <button
-      type="button"
-      className={`presenca-cell${value ? ' presenca-cell--present' : ''}`}
-      onClick={() => onChange(!value)}
-      title={value ? 'Presente — clique para marcar falta' : 'Falta — clique para marcar presença'}
-    >
-      {value ? (
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-          <polyline points="2.5 8 6 11.5 13.5 4" />
-        </svg>
-      ) : (
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <line x1="5" y1="5" x2="11" y2="11" /><line x1="11" y1="5" x2="5" y2="11" />
-        </svg>
-      )}
-    </button>
-  );
+/** Cria as linhas de presenças que faltam para os alunos (só os que têm ano de catecismo). */
+async function ensurePresencas(alunos: Aluno[]) {
+  const payload = alunos
+    .filter((aluno) => aluno.ano_catecismo !== null)
+    .map((aluno) => ({
+      aluno_id: aluno.id,
+      ano_matricula: aluno.ano_matricula,
+      catequista_id: aluno.catequista_id,
+      ano_catecismo: aluno.ano_catecismo
+    }));
+  if (payload.length === 0) return;
+  await supabase.from('presencas_mensais').upsert(payload, { onConflict: 'aluno_id,ano_matricula,ano_catecismo' });
 }
 
 export default function Presencas() {
-  const [catequistas, setCatequistas] = useState<SimpleEntity[]>([]);
   const [filterCatequista, setFilterCatequista] = useState('');
   const [filterAnoMatricula, setFilterAnoMatricula] = useState('');
   const [filterAnoCatecismo, setFilterAnoCatecismo] = useState('');
@@ -54,80 +34,35 @@ export default function Presencas() {
   const [loading, setLoading] = useState(false);
   const refreshTimeout = useRef<number | null>(null);
 
-  const loadReference = async () => {
-    const [{ data: catequistasData }] = await Promise.all([supabase.from('catequistas').select('*').order('nome')]);
-    setCatequistas(catequistasData ?? []);
-  };
+  const { data: catequistas = [] } = useQuery({ queryKey: ['catequistas'], queryFn: fetchCatequistas });
 
-  const ensurePresencas = async (alunos: Aluno[]) => {
-    const payload = alunos
-      .filter((aluno) => aluno.ano_catecismo !== null)
-      .map((aluno) => ({
-        aluno_id: aluno.id,
-        ano_matricula: aluno.ano_matricula,
-        catequista_id: aluno.catequista_id,
-        ano_catecismo: aluno.ano_catecismo,
-      }));
-    if (payload.length === 0) return;
-    await supabase.from('presencas_mensais').upsert(payload, { onConflict: 'aluno_id,ano_matricula,ano_catecismo' });
-  };
-
-  const loadPresencas = async (isSilent = false) => {
-    if (!isSilent) setLoading(true);
-
+  const carregar = async (criarEmFalta: boolean) => {
     let alunosQuery = supabase.from('alunos').select('*');
     if (filterCatequista) alunosQuery = alunosQuery.eq('catequista_id', filterCatequista);
     if (filterAnoMatricula) alunosQuery = alunosQuery.eq('ano_matricula', Number(filterAnoMatricula));
     if (filterAnoCatecismo) alunosQuery = alunosQuery.eq('ano_catecismo', Number(filterAnoCatecismo));
-
     const { data: alunosData } = await alunosQuery;
     const alunos = alunosData ?? [];
+
+    if (criarEmFalta) await ensurePresencas(alunos);
 
     let presencasQuery = supabase.from('presencas_mensais').select('*');
     if (filterCatequista) presencasQuery = presencasQuery.eq('catequista_id', filterCatequista);
     if (filterAnoMatricula) presencasQuery = presencasQuery.eq('ano_matricula', Number(filterAnoMatricula));
     if (filterAnoCatecismo) presencasQuery = presencasQuery.eq('ano_catecismo', Number(filterAnoCatecismo));
-
     const { data: presencasData } = await presencasQuery;
-    const presencas = presencasData ?? [];
 
-    const rowsWithNome = presencas.map((presenca) => {
-      const aluno = alunos.find((item) => item.id === presenca.aluno_id);
-      return {
-        ...presenca,
-        aluno_nome: aluno?.nome_aluno ?? 'Sem nome',
-        aluno_nr_matricula: aluno?.nr_matricula ?? null,
-      };
-    });
-
+    const nomes = new Map(alunos.map((aluno) => [aluno.id, aluno.nome_aluno]));
     setRows(
-      rowsWithNome.sort((a, b) => {
-        const matriculaA = a.aluno_nr_matricula ?? Number.MAX_SAFE_INTEGER;
-        const matriculaB = b.aluno_nr_matricula ?? Number.MAX_SAFE_INTEGER;
-        if (matriculaA !== matriculaB) return matriculaA - matriculaB;
-        return a.aluno_nome.localeCompare(b.aluno_nome);
-      })
+      (presencasData ?? [])
+        .map((presenca) => ({ ...presenca, aluno_nome: nomes.get(presenca.aluno_id) ?? 'Sem nome' }))
+        .sort((a, b) => a.aluno_nome.localeCompare(b.aluno_nome, 'pt'))
     );
-    if (!isSilent) setLoading(false);
   };
 
-  useEffect(() => { loadReference(); }, []);
-
   useEffect(() => {
-    const init = async () => {
-      setLoading(true);
-      // Carrega alunos primeiro para saber quem deve ter presenças
-      let query = supabase.from('alunos').select('*');
-      if (filterCatequista) query = query.eq('catequista_id', filterCatequista);
-      if (filterAnoMatricula) query = query.eq('ano_matricula', Number(filterAnoMatricula));
-      if (filterAnoCatecismo) query = query.eq('ano_catecismo', Number(filterAnoCatecismo));
-      const { data } = await query;
-      if (data) await ensurePresencas(data);
-
-      await loadPresencas(true);
-      setLoading(false);
-    };
-    init();
+    setLoading(true);
+    carregar(true).finally(() => setLoading(false));
   }, [filterCatequista, filterAnoMatricula, filterAnoCatecismo]);
 
   useEffect(() => {
@@ -135,7 +70,7 @@ export default function Presencas() {
       .channel('presencas-changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'presencas_mensais' }, () => {
         if (refreshTimeout.current) window.clearTimeout(refreshTimeout.current);
-        refreshTimeout.current = window.setTimeout(() => loadPresencas(true), 300);
+        refreshTimeout.current = window.setTimeout(() => carregar(false), 300);
       })
       .subscribe();
     return () => {
@@ -144,10 +79,22 @@ export default function Presencas() {
     };
   }, [filterCatequista, filterAnoMatricula, filterAnoCatecismo]);
 
-  const handleToggle = async (id: string, key: SlotKey, value: boolean) => {
-    // Atualização otimista
-    setRows((prev) => prev.map((row) => (row.id === id ? { ...row, [key]: value } : row)));
-    await supabase.from('presencas_mensais').update({ [key]: value }).eq('id', id);
+  const handleToggle = async (id: string, slot: SlotKey, value: Presenca) => {
+    // Atualização otimista; se falhar, volta a ler da base de dados.
+    setRows((prev) => prev.map((row) => (row.id === id ? { ...row, [slot]: value } : row)));
+    const { error } = await supabase.from('presencas_mensais').update({ [slot]: value }).eq('id', id);
+    if (error) carregar(false);
+  };
+
+  // Carregar no cabeçalho de uma sessão marca todos presentes; se já estavam todos,
+  // volta a pôr a sessão toda por marcar.
+  const marcarSessao = async (slot: SlotKey) => {
+    if (!filterCatequista || !rows.length) return;
+    const valor: Presenca = rows.every((row) => row[slot] === true) ? null : true;
+    const ids = rows.map((row) => row.id);
+    setRows((prev) => prev.map((row) => ({ ...row, [slot]: valor })));
+    const { error } = await supabase.from('presencas_mensais').update({ [slot]: valor }).in('id', ids);
+    if (error) carregar(false);
   };
 
   const catequistaOptions = useMemo(
@@ -155,69 +102,46 @@ export default function Presencas() {
     [catequistas]
   );
 
-  // Totais por aluno
-  const slotKeys = months.flatMap((m) => m.slots);
-  const totalPresencas = (row: PresencaRow) =>
-    slotKeys.filter((k) => Boolean((row as any)[k])).length;
+  const presentesPorSessao = (slot: SlotKey) => rows.filter((row) => row[slot] === true).length;
+
+  const temFiltros = Boolean(filterCatequista || filterAnoMatricula || filterAnoCatecismo);
+  const limparFiltros = () => {
+    setFilterCatequista('');
+    setFilterAnoMatricula('');
+    setFilterAnoCatecismo('');
+  };
 
   return (
     <div className="page">
       <header className="page-header">
-        <h1>Mapa de Presenças</h1>
+        <div>
+          <h1>Mapa de Presenças</h1>
+          <p className="page-subtitle">
+            Carrega num quadrado para marcar a presença. Com um catequista escolhido, carregar em "1ª" ou "2ª" marca a sessão toda.
+          </p>
+        </div>
       </header>
 
-      <div className="print-only print-filter-summary">
-        <div className="print-filter-item">
-          <span className="print-filter-label">Catequista:</span>
-          <span>{catequistas.find(c => c.id === filterCatequista)?.nome || 'Todos'}</span>
-        </div>
-        <div className="print-filter-item">
-          <span className="print-filter-label">Ano matrícula:</span>
-          <span>{filterAnoMatricula || 'Todos'}</span>
-        </div>
-        <div className="print-filter-item">
-          <span className="print-filter-label">Ano catecismo:</span>
-          <span>{filterAnoCatecismo || 'Todos'}</span>
-        </div>
+      <div className="chips">
+        <ChipSelect label="Catequista" value={filterCatequista} onChange={setFilterCatequista} options={catequistaOptions} />
+        <ChipSelect label="Ano" value={filterAnoMatricula} onChange={setFilterAnoMatricula} options={anoMatriculaOptions} />
+        <ChipSelect label="Catecismo" value={filterAnoCatecismo} onChange={setFilterAnoCatecismo} options={anoCatecismoOptions} />
+        {temFiltros && (
+          <button type="button" className="chip-clear" onClick={limparFiltros}>
+            Limpar filtros
+          </button>
+        )}
       </div>
 
-      <section className="card no-print">
-        <div className="defn-card-header" style={{ marginBottom: 0 }}>
-          <span className="defn-card-title">Filtros</span>
-        </div>
-        <div className="filters" style={{ marginTop: 12 }}>
-          <SelectField
-            label="Catequista"
-            value={filterCatequista}
-            onChange={setFilterCatequista}
-            options={catequistaOptions}
-            placeholder="Selecionar"
-          />
-          <FormField label="Ano matrícula" value={filterAnoMatricula} onChange={setFilterAnoMatricula} type="number" />
-          <FormField label="Ano catecismo" value={filterAnoCatecismo} onChange={setFilterAnoCatecismo} type="number" />
-        </div>
-      </section>
-
-      <section className="card">
-        <div className="defn-card-header">
-          <span className="defn-card-title">Presenças mensais</span>
+      <section className="card card--flush">
+        <div className="card-toolbar">
+          <span className="defn-card-title">
+            {loading ? 'A carregar…' : `${rows.length} aluno${rows.length !== 1 ? 's' : ''}`}
+          </span>
           <div className="presenca-legend">
-            <span className="presenca-legend-item">
-              <span className="presenca-cell presenca-cell--present presenca-cell--tiny">
-                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" width="8" height="8">
-                  <polyline points="2.5 8 6 11.5 13.5 4" />
-                </svg>
-              </span>
-              Presente
-            </span>
-            <span className="presenca-legend-item">
-              <span className="presenca-cell presenca-cell--tiny">
-                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="8" height="8">
-                  <line x1="5" y1="5" x2="11" y2="11" /><line x1="11" y1="5" x2="5" y2="11" />
-                </svg>
-              </span>
-              Falta
-            </span>
+            <span className="presenca-legend-item"><PresencaCell valor={null} /> Por marcar</span>
+            <span className="presenca-legend-item"><PresencaCell valor /> Presente</span>
+            <span className="presenca-legend-item"><PresencaCell valor={false} /> Falta</span>
           </div>
         </div>
 
@@ -233,66 +157,82 @@ export default function Presencas() {
               <path d="M6 18h36" stroke="currentColor" strokeWidth="2" />
               <path d="M16 28h16M16 34h8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
             </svg>
-            <span>Nenhum registo encontrado. Ajusta os filtros acima.</span>
+            <span>Nenhum aluno com estes filtros. Os alunos só aparecem aqui depois de terem o ano de catecismo preenchido.</span>
           </div>
         ) : (
-          <div className="table-scroll">
+          <div className="table-scroll presenca-scroll">
             <table className="table presenca-table">
               <thead>
                 <tr>
-                  <th style={{ width: 60 }}>Nº</th>
                   <th>Aluno</th>
                   {months.map((m) => (
-                    <th key={m.label} className="center presenca-month-header">{m.label}</th>
+                    <th key={m.label} className="center presenca-month-header">
+                      <div>{m.label}</div>
+                      <div className="presenca-slot-pair">
+                        {m.slots.map((slot, i) => (
+                          <button
+                            key={slot}
+                            type="button"
+                            className="sessao-btn"
+                            onClick={() => marcarSessao(slot)}
+                            disabled={!filterCatequista}
+                            title={filterCatequista ? 'Marcar a sessão toda' : 'Escolhe um catequista para marcar a sessão toda'}
+                          >
+                            {i + 1}ª
+                          </button>
+                        ))}
+                      </div>
+                    </th>
                   ))}
-                  <th className="center" style={{ width: 54 }}>Total</th>
+                  <th className="center">Total</th>
                 </tr>
               </thead>
               <tbody>
-                {rows.map((row) => {
-                  const total = totalPresencas(row);
-                  const pct = Math.round((total / (slotKeys.length)) * 100);
-                  return (
-                    <tr key={row.id}>
-                      <td style={{ color: 'var(--gray-500)', fontSize: 12 }}>{row.aluno_nr_matricula ?? '—'}</td>
-                      <td style={{ fontWeight: 500 }}>{row.aluno_nome}</td>
-                      {months.map((m) => (
-                        <td key={m.label} className="center presenca-month-cell">
-                          <div className="presenca-slot-pair">
+                {rows.map((row) => (
+                  <tr key={row.id}>
+                    <td>
+                      <div className="aluno-cell">
+                        <span className="avatar avatar--sm">{iniciais(row.aluno_nome)}</span>
+                        <div>
+                          <div className="aluno-nome">{row.aluno_nome}</div>
+                          {row.ano_catecismo && <div className="cell-sub">{row.ano_catecismo}º ano</div>}
+                        </div>
+                      </div>
+                    </td>
+                    {months.map((m) => (
+                      <td key={m.label} className="center presenca-month-cell">
+                        <div className="presenca-slot-pair">
+                          {m.slots.map((slot) => (
                             <PresencaCell
-                              value={Boolean((row as any)[m.slots[0]])}
-                              onChange={(v) => handleToggle(row.id, m.slots[0], v)}
+                              key={slot}
+                              valor={row[slot] ?? null}
+                              onChange={(v) => handleToggle(row.id, slot, v)}
                             />
-                            <PresencaCell
-                              value={Boolean((row as any)[m.slots[1]])}
-                              onChange={(v) => handleToggle(row.id, m.slots[1], v)}
-                            />
-                          </div>
-                        </td>
-                      ))}
-                      <td className="center">
-                        <span
-                          className="presenca-total"
-                          style={{
-                            background: pct >= 75
-                              ? 'var(--success-bg)'
-                              : pct >= 40
-                                ? 'var(--warning-bg)'
-                                : 'var(--error-bg)',
-                            color: pct >= 75
-                              ? 'var(--success-txt)'
-                              : pct >= 40
-                                ? 'var(--warning-txt)'
-                                : 'var(--error-txt)',
-                          }}
-                        >
-                          {total}
-                        </span>
+                          ))}
+                        </div>
                       </td>
-                    </tr>
-                  );
-                })}
+                    ))}
+                    <td className="center">
+                      <span className="presenca-total">{totalPresencas(row)}</span>
+                    </td>
+                  </tr>
+                ))}
               </tbody>
+              <tfoot>
+                <tr>
+                  <td className="presenca-foot-label">Presentes</td>
+                  {months.map((m) => (
+                    <td key={m.label} className="center presenca-month-cell">
+                      <div className="presenca-slot-pair">
+                        {m.slots.map((slot) => (
+                          <span key={slot} className="presenca-foot-count">{presentesPorSessao(slot) || ''}</span>
+                        ))}
+                      </div>
+                    </td>
+                  ))}
+                  <td />
+                </tr>
+              </tfoot>
             </table>
           </div>
         )}

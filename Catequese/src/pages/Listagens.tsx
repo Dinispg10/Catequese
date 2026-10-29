@@ -1,398 +1,436 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
-import { Aluno, PresencaMensal, SimpleEntity } from '../lib/types';
+import { Aluno, PresencaMensal } from '../lib/types';
+import { fetchAlunos, fetchCatequistas, fetchCentros, fetchEscolas, fetchParoquias } from '../lib/api';
+import { anoCatecismoOptions, anoMatriculaOptions, formatDate, join } from '../lib/format';
+import { months, totalPresencas } from '../lib/presencas';
 import SelectField from '../components/SelectField';
-import FormField from '../components/FormField';
+import CheckboxField from '../components/CheckboxField';
+import PresencaCell from '../components/PresencaCell';
 
-const tabs = [
-  { key: 'alunos', label: 'Listagem de Alunos' },
-  { key: 'fichas', label: 'Fichas Completas' },
-  { key: 'presencas', label: 'Mapa de Presenças' }
-] as const;
+type DocKey = 'catequistas' | 'fichas' | 'contactos' | 'presencas';
 
-/** As datas vêm do Supabase como AAAA-MM-DD; mostram-se como DD/MM/AAAA. */
-function formatDate(value: string | null) {
-  if (!value) return '';
-  const [ano, mes, dia] = value.slice(0, 10).split('-');
-  return dia && mes && ano ? `${dia}/${mes}/${ano}` : value;
+const documentos: { key: DocKey; titulo: string; descricao: string; deitado: boolean; icon: ReactNode }[] = [
+  {
+    key: 'catequistas',
+    titulo: 'Lista por catequista',
+    descricao: 'Os alunos de cada catequista, com espaço para observações.',
+    deitado: false,
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" />
+        <path d="M23 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" />
+      </svg>
+    )
+  },
+  {
+    key: 'fichas',
+    titulo: 'Fichas completas',
+    descricao: 'Todos os dados da ficha de inscrição de cada aluno.',
+    deitado: true,
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" />
+        <line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" />
+      </svg>
+    )
+  },
+  {
+    key: 'contactos',
+    titulo: 'Contactos dos encarregados',
+    descricao: 'Encarregado, pais, telemóvel, email e morada.',
+    deitado: false,
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z" />
+      </svg>
+    )
+  },
+  {
+    key: 'presencas',
+    titulo: 'Mapa de presenças',
+    descricao: 'Presenças quinzenais de outubro a junho.',
+    deitado: true,
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M9 11l3 3L22 4" /><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
+      </svg>
+    )
+  }
+];
+
+type PresencaComAluno = PresencaMensal & { aluno_nome: string };
+
+interface Filtros {
+  ano: string;
+  anoCatecismo: string;
+  catequista: string;
+  centro: string;
 }
 
-/** Junta os valores preenchidos com um separador, ignorando os vazios. */
-function join(values: (string | number | null | undefined)[], sep = ' · ') {
-  return values.filter((v) => v !== null && v !== undefined && v !== '').join(sep);
+async function fetchPresencas(filtros: Filtros): Promise<PresencaComAluno[]> {
+  let query = supabase.from('presencas_mensais').select('*');
+
+  if (filtros.catequista) query = query.eq('catequista_id', filtros.catequista);
+  if (filtros.ano) query = query.eq('ano_matricula', Number(filtros.ano));
+  if (filtros.anoCatecismo) query = query.eq('ano_catecismo', Number(filtros.anoCatecismo));
+
+  const { data, error } = await query;
+  if (error) throw new Error(error.message);
+  const presencasData = (data ?? []) as PresencaMensal[];
+
+  const alunosIds = presencasData.map((row) => row.aluno_id);
+  const { data: alunosData } = alunosIds.length
+    ? await supabase.from('alunos').select('id,nome_aluno,centro_id').in('id', alunosIds)
+    : { data: [] };
+
+  const alunosMap = new Map((alunosData ?? []).map((aluno) => [aluno.id, aluno]));
+
+  return presencasData
+    // As presenças não guardam o centro; vê-se pelo aluno.
+    .filter((row) => !filtros.centro || alunosMap.get(row.aluno_id)?.centro_id === filtros.centro)
+    .map((row) => ({ ...row, aluno_nome: alunosMap.get(row.aluno_id)?.nome_aluno ?? 'Sem nome' }))
+    .sort((a, b) => a.aluno_nome.localeCompare(b.aluno_nome, 'pt'));
 }
 
 /** Linha secundária, mais pequena, dentro de uma célula. */
-function Sub({ children }: { children: React.ReactNode }) {
+function Sub({ children }: { children: ReactNode }) {
   if (!children) return null;
-  return <div className="ficha-sub">{children}</div>;
-}
-
-type TabKey = (typeof tabs)[number]['key'];
-
-/** 1 coluna por mês, 2 "slots" dentro */
-const months = [
-  { label: 'Out', slots: ['out_1', 'out_2'] as const },
-  { label: 'Nov', slots: ['nov_1', 'nov_2'] as const },
-  { label: 'Dez', slots: ['dez_1', 'dez_2'] as const },
-  { label: 'Jan', slots: ['jan_1', 'jan_2'] as const },
-  { label: 'Fev', slots: ['fev_1', 'fev_2'] as const },
-  { label: 'Mar', slots: ['mar_1', 'mar_2'] as const },
-  { label: 'Abr', slots: ['abr_1', 'abr_2'] as const },
-  { label: 'Mai', slots: ['mai_1', 'mai_2'] as const },
-  { label: 'Jun', slots: ['jun_1', 'jun_2'] as const }
-] as const;
-
-const slotKeys = months.flatMap((m) => m.slots);
-
-function PresencaCell({ value }: { value: boolean }) {
-  return (
-    <div className={`presenca-cell presenca-cell--tiny${value ? ' presenca-cell--present' : ''}`}>
-      {value ? (
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-          <polyline points="2.5 8 6 11.5 13.5 4" />
-        </svg>
-      ) : (
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <line x1="5" y1="5" x2="11" y2="11" /><line x1="11" y1="5" x2="5" y2="11" />
-        </svg>
-      )}
-    </div>
-  );
+  return <div className="paper-sub">{children}</div>;
 }
 
 export default function Listagens() {
-  const [activeTab, setActiveTab] = useState<TabKey>('alunos');
-  const [catequistas, setCatequistas] = useState<SimpleEntity[]>([]);
-  const [paroquias, setParoquias] = useState<SimpleEntity[]>([]);
-  const [escolas, setEscolas] = useState<SimpleEntity[]>([]);
-  const [centros, setCentros] = useState<SimpleEntity[]>([]);
-  const [filterAno, setFilterAno] = useState('');
-  const [filterCatequista, setFilterCatequista] = useState('');
-  const [filterAnoCatecismo, setFilterAnoCatecismo] = useState('');
-  const [alunos, setAlunos] = useState<Aluno[]>([]);
-  const [presencas, setPresencas] = useState<(PresencaMensal & { aluno_nome: string; aluno_nr_matricula: number | null })[]>([]);
+  const [doc, setDoc] = useState<DocKey>('catequistas');
+  const [filtros, setFiltros] = useState<Filtros>({ ano: '', anoCatecismo: '', catequista: '', centro: '' });
+  const [grupoPorPagina, setGrupoPorPagina] = useState(true);
 
-  const loadReference = async () => {
-    const [catequistasRes, paroquiasRes, escolasRes, centrosRes] = await Promise.all([
-      supabase.from('catequistas').select('*').order('nome'),
-      supabase.from('paroquias').select('*').order('nome'),
-      supabase.from('escolas').select('*').order('nome'),
-      supabase.from('centros_catequese').select('*').order('nome')
-    ]);
-    setCatequistas(catequistasRes.data ?? []);
-    setParoquias(paroquiasRes.data ?? []);
-    setEscolas(escolasRes.data ?? []);
-    setCentros(centrosRes.data ?? []);
-  };
+  const setFiltro = (campo: keyof Filtros) => (valor: string) => setFiltros((f) => ({ ...f, [campo]: valor }));
 
-  const loadAlunos = async () => {
-    let query = supabase.from('alunos').select('*').order('nr_matricula').order('nome_aluno');
+  const { data: catequistas = [] } = useQuery({ queryKey: ['catequistas'], queryFn: fetchCatequistas });
+  const { data: centros = [] } = useQuery({ queryKey: ['centros'], queryFn: fetchCentros });
+  const { data: paroquias = [] } = useQuery({ queryKey: ['paroquias'], queryFn: fetchParoquias });
+  const { data: escolas = [] } = useQuery({ queryKey: ['escolas'], queryFn: fetchEscolas });
 
-    if (filterAno) query = query.eq('ano_matricula', Number(filterAno));
-    if (filterCatequista) query = query.eq('catequista_id', filterCatequista);
-    if (filterAnoCatecismo) query = query.eq('ano_catecismo', Number(filterAnoCatecismo));
+  const { data: alunos = [], isLoading: loadingAlunos } = useQuery({
+    queryKey: ['alunos', 'listagem', filtros],
+    queryFn: () => fetchAlunos({
+      ano_matricula: filtros.ano ? Number(filtros.ano) : undefined,
+      ano_catecismo: filtros.anoCatecismo ? Number(filtros.anoCatecismo) : undefined,
+      catequista_id: filtros.catequista || undefined,
+      centro_id: filtros.centro || undefined
+    }),
+    enabled: doc !== 'presencas'
+  });
 
-    const { data } = await query;
-    setAlunos(data ?? []);
-  };
+  const { data: presencas = [], isLoading: loadingPresencas } = useQuery({
+    queryKey: ['presencas-listagem', filtros],
+    queryFn: () => fetchPresencas(filtros),
+    enabled: doc === 'presencas'
+  });
 
-  const loadPresencas = async () => {
-    let query = supabase.from('presencas_mensais').select('*');
-
-    if (filterCatequista) query = query.eq('catequista_id', filterCatequista);
-    if (filterAno) query = query.eq('ano_matricula', Number(filterAno));
-    if (filterAnoCatecismo) query = query.eq('ano_catecismo', Number(filterAnoCatecismo));
-
-    const { data } = await query;
-    const presencasData = data ?? [];
-
-    const alunosIds = presencasData.map((row) => row.aluno_id);
-    const { data: alunosData } = alunosIds.length
-      ? await supabase.from('alunos').select('id,nome_aluno,nr_matricula').in('id', alunosIds)
-      : { data: [] };
-
-    const alunosMap = new Map(
-      (alunosData ?? []).map((aluno) => [aluno.id, { nome: aluno.nome_aluno, nr_matricula: aluno.nr_matricula }])
-    );
-    setPresencas(
-      presencasData
-        .map((row) => {
-          const aluno = alunosMap.get(row.aluno_id);
-          return {
-            ...row,
-            aluno_nome: aluno?.nome ?? row.aluno_id,
-            aluno_nr_matricula: aluno?.nr_matricula ?? null
-          };
-        })
-        .sort((a, b) => {
-          const matriculaA = a.aluno_nr_matricula ?? Number.MAX_SAFE_INTEGER;
-          const matriculaB = b.aluno_nr_matricula ?? Number.MAX_SAFE_INTEGER;
-          if (matriculaA !== matriculaB) return matriculaA - matriculaB;
-          return a.aluno_nome.localeCompare(b.aluno_nome);
-        })
-    );
-  };
-
-  useEffect(() => {
-    loadReference();
-  }, []);
-
-  useEffect(() => {
-    if (activeTab === 'presencas') loadPresencas();
-    else loadAlunos();
-  }, [activeTab, filterAno, filterCatequista, filterAnoCatecismo]);
-
-  const handlePrint = () => window.print();
-
-  const catequistaOptions = useMemo(
-    () => catequistas.map((item) => ({ value: item.id, label: item.nome })),
-    [catequistas]
-  );
-
-  const nomeDe = (lista: SimpleEntity[], id: string | null) =>
+  const nomeDe = (lista: { id: string; nome: string }[], id: string | null) =>
     (id && lista.find((item) => item.id === id)?.nome) || '';
 
-  const totalPresencas = (row: PresencaMensal) =>
-    slotKeys.filter((k) => Boolean((row as any)[k])).length;
+  const catequistaOptions = useMemo(() => catequistas.map((i) => ({ value: i.id, label: i.nome })), [catequistas]);
+  const centroOptions = useMemo(() => centros.map((i) => ({ value: i.id, label: i.nome })), [centros]);
+
+  // Um grupo por catequista (os alunos sem catequista ficam no fim), alunos por ordem alfabética.
+  const gruposCatequista = useMemo(() => {
+    const grupos = new Map<string, Aluno[]>();
+    for (const aluno of alunos) {
+      const chave = aluno.catequista_id ?? '';
+      grupos.set(chave, [...(grupos.get(chave) ?? []), aluno]);
+    }
+    return [...grupos.entries()]
+      .map(([catequistaId, lista]) => {
+        const anos = [...new Set(lista.map((a) => a.ano_catecismo).filter((a): a is number => a !== null))].sort((a, b) => a - b);
+        const nomesCentros = [...new Set(lista.map((a) => nomeDe(centros, a.centro_id)).filter(Boolean))];
+        return {
+          catequistaId,
+          nome: nomeDe(catequistas, catequistaId || null) || 'Sem catequista',
+          detalhe: join([anos.map((a) => `${a}º`).join(', ') + (anos.length ? ' ano' : ''), nomesCentros.join(', ')]),
+          alunos: [...lista].sort((a, b) => a.nome_aluno.localeCompare(b.nome_aluno, 'pt'))
+        };
+      })
+      .sort((a, b) => (!a.catequistaId ? 1 : !b.catequistaId ? -1 : a.nome.localeCompare(b.nome, 'pt')));
+  }, [alunos, catequistas, centros]);
+
+  const docAtual = documentos.find((d) => d.key === doc)!;
+  const loading = doc === 'presencas' ? loadingPresencas : loadingAlunos;
+  const total = doc === 'presencas' ? presencas.length : alunos.length;
+
+  // Só aparecem no cabeçalho da folha os filtros escolhidos.
+  const meta = [
+    filtros.ano && { label: 'Ano de matrícula', valor: filtros.ano },
+    filtros.anoCatecismo && { label: 'Catecismo', valor: `${filtros.anoCatecismo}º ano` },
+    filtros.catequista && { label: 'Catequista', valor: nomeDe(catequistas, filtros.catequista) },
+    filtros.centro && { label: 'Centro', valor: nomeDe(centros, filtros.centro) }
+  ].filter(Boolean) as { label: string; valor: string }[];
+
+  const hoje = new Date().toLocaleDateString('pt-PT');
 
   return (
     <div className="page">
-      <header className="page-header print-area">
-        <h1>Listagens</h1>
-        <button className="button" type="button" onClick={handlePrint}>
-          Imprimir
-        </button>
+      <header className="page-header no-print">
+        <div>
+          <h1>Listagens</h1>
+          <p className="page-subtitle">Escolhe um documento, ajusta os filtros e imprime.</p>
+        </div>
       </header>
 
-      <div className="print-only print-filter-summary">
-        <div className="print-filter-item">
-          <span className="print-filter-label">Catequista:</span>
-          <span>{catequistas.find(c => c.id === filterCatequista)?.nome || 'Todos'}</span>
-        </div>
-        <div className="print-filter-item">
-          <span className="print-filter-label">Ano matrícula:</span>
-          <span>{filterAno || 'Todos'}</span>
-        </div>
-        <div className="print-filter-item">
-          <span className="print-filter-label">Ano catecismo:</span>
-          <span>{filterAnoCatecismo || 'Todos'}</span>
-        </div>
-      </div>
+      <div className="side-layout">
+        {/* Painel da esquerda: escolher o documento e os filtros */}
+        <aside className="docs-panel no-print">
+          <div className="docs-panel-title">Documento</div>
+          <div className="doc-options">
+            {documentos.map((d) => (
+              <button
+                key={d.key}
+                type="button"
+                className={`doc-option${doc === d.key ? ' doc-option--active' : ''}`}
+                onClick={() => setDoc(d.key)}
+              >
+                <span className="doc-option-icon">{d.icon}</span>
+                <span>
+                  <span className="doc-option-title">{d.titulo}</span>
+                  <span className="doc-option-desc">{d.descricao}</span>
+                </span>
+              </button>
+            ))}
+          </div>
 
-      <div className="tabs">
-        {tabs.map((tab) => (
-          <button
-            key={tab.key}
-            type="button"
-            className={`tab ${activeTab === tab.key ? 'active' : ''}`}
-            onClick={() => setActiveTab(tab.key)}
-          >
-            {tab.label}
+          <div className="docs-panel-title">Filtros</div>
+          <div className="form">
+            <SelectField label="Ano matrícula" value={filtros.ano} onChange={setFiltro('ano')} options={anoMatriculaOptions} placeholder="Todos" />
+            <SelectField label="Ano catecismo" value={filtros.anoCatecismo} onChange={setFiltro('anoCatecismo')} options={anoCatecismoOptions} placeholder="Todos" />
+            <SelectField label="Catequista" value={filtros.catequista} onChange={setFiltro('catequista')} options={catequistaOptions} placeholder="Todos" />
+            <SelectField label="Centro" value={filtros.centro} onChange={setFiltro('centro')} options={centroOptions} placeholder="Todos" />
+            {doc === 'catequistas' && (
+              <CheckboxField label="Cada catequista numa folha" checked={grupoPorPagina} onChange={setGrupoPorPagina} />
+            )}
+          </div>
+
+          <button className="button docs-print" type="button" onClick={() => window.print()} disabled={loading || !total}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="16" height="16">
+              <polyline points="6 9 6 2 18 2 18 9" />
+              <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
+              <rect x="6" y="14" width="12" height="8" />
+            </svg>
+            Imprimir
           </button>
-        ))}
-      </div>
+        </aside>
 
-      <section className="card no-print">
-        <h2>Filtros</h2>
-        <div className="filters">
-          <SelectField
-            label="Catequista"
-            value={filterCatequista}
-            onChange={setFilterCatequista}
-            options={catequistaOptions}
-            placeholder="Selecionar"
-          />
-          <FormField label="Ano matrícula" value={filterAno} onChange={setFilterAno} type="number" />
-          <FormField label="Ano catecismo" value={filterAnoCatecismo} onChange={setFilterAnoCatecismo} type="number" />
-        </div>
-      </section>
-
-      {activeTab === 'alunos' && (
-        <section className="card print-area">
-          <h2>Resultados</h2>
-          <div className="table-scroll">
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>Nº matrícula</th>
-                  <th>Nome</th>
-                  <th>Ano matrícula</th>
-                  <th>Catequista</th>
-                  <th>Ano catequese</th>
-                </tr>
-              </thead>
-              <tbody>
-                {alunos.map((aluno) => (
-                  <tr key={aluno.id}>
-                    <td>{aluno.nr_matricula}</td>
-                    <td>{aluno.nome_aluno}</td>
-                    <td>{aluno.ano_matricula}</td>
-                    <td>{catequistas.find((item) => item.id === aluno.catequista_id)?.nome ?? '-'}</td>
-                    <td>{aluno.ano_catecismo ?? '-'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      )}
-
-      {activeTab === 'fichas' && (
-        <section className="card print-area">
-          {/* Com tantas colunas, a folha só cabe deitada. */}
-          <style>{'@media print { @page { size: A4 landscape; } }'}</style>
-          <h2>
-            Fichas de inscrição — {alunos.length} aluno{alunos.length !== 1 ? 's' : ''}
-          </h2>
-          <div className="table-scroll fichas-scroll">
-            <table className="table fichas-table">
-              <thead>
-                <tr>
-                  <th>Nº</th>
-                  <th>Aluno</th>
-                  <th>Filiação</th>
-                  <th>Encarregado</th>
-                  <th>Morada</th>
-                  <th>Contactos</th>
-                  <th>Batismo</th>
-                  <th>Escola</th>
-                  <th>Catequese</th>
-                  <th>Paróquia</th>
-                </tr>
-              </thead>
-              <tbody>
-                {alunos.map((aluno) => (
-                  <tr key={aluno.id}>
-                    <td>
-                      {aluno.nr_matricula}
-                      <Sub>{aluno.ano_matricula}</Sub>
-                    </td>
-                    <td>
-                      <strong>{aluno.nome_aluno}</strong>
-                      <Sub>{join([formatDate(aluno.data_nascimento), aluno.naturalidade])}</Sub>
-                    </td>
-                    <td>
-                      {aluno.nome_pai && <div><span className="ficha-label">Pai:</span> {aluno.nome_pai}</div>}
-                      {aluno.nome_mae && <div><span className="ficha-label">Mãe:</span> {aluno.nome_mae}</div>}
-                    </td>
-                    <td>{aluno.encarregado_nome}</td>
-                    <td>
-                      {aluno.morada}
-                      <Sub>{join([aluno.codigo_postal, aluno.localidade], ' ')}</Sub>
-                    </td>
-                    <td>
-                      {aluno.telemovel}
-                      <Sub>{aluno.email}</Sub>
-                    </td>
-                    <td>
-                      {aluno.batizado ? 'Sim' : 'Não'}
-                      {aluno.batizado && <Sub>{join([formatDate(aluno.data_batismo), aluno.lugar_batismo])}</Sub>}
-                    </td>
-                    <td>
-                      {nomeDe(escolas, aluno.escola_id)}
-                      <Sub>{aluno.ano_escolar ? `${aluno.ano_escolar}º ano` : ''}</Sub>
-                    </td>
-                    <td>
-                      {aluno.ano_catecismo ? `${aluno.ano_catecismo}º ano` : ''}
-                      <Sub>{join([nomeDe(catequistas, aluno.catequista_id), nomeDe(centros, aluno.centro_id)])}</Sub>
-                    </td>
-                    <td>{nomeDe(paroquias, aluno.paroquia_id)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      )}
-
-      {activeTab === 'presencas' && (
-        <section className="card print-area">
-          <div className="defn-card-header">
-            <h2 style={{ marginBottom: 0 }}>Mapa de Presenças</h2>
-            <div className="presenca-legend">
-              <span className="presenca-legend-item">
-                <span className="presenca-cell presenca-cell--present presenca-cell--tiny">
-                  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" width="8" height="8">
-                    <polyline points="2.5 8 6 11.5 13.5 4" />
+        {/* Pré-visualização: o que aparece aqui é o que sai na impressora */}
+        <div className="paper-wrap">
+          {docAtual.deitado && <style>{'@media print { @page { size: A4 landscape; } }'}</style>}
+          <article className={`paper${docAtual.deitado ? ' paper--landscape' : ''}`}>
+            <header className="paper-header">
+              <div>
+                <div className="paper-brand">
+                  <svg viewBox="0 0 24 24" fill="currentColor" width="12" height="12">
+                    <path d="M11 2h2v5h5v2h-5v13h-2v-13h-5v-2h5z" />
                   </svg>
-                </span>
-                Presente
-              </span>
-              <span className="presenca-legend-item">
-                <span className="presenca-cell presenca-cell--tiny">
-                  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="8" height="8">
-                    <line x1="5" y1="5" x2="11" y2="11" /><line x1="11" y1="5" x2="5" y2="11" />
-                  </svg>
-                </span>
-                Falta
-              </span>
-            </div>
-          </div>
+                  Catequese · Gestão Paroquial
+                </div>
+                <h2 className="paper-title">{docAtual.titulo}</h2>
+                {meta.length > 0 && (
+                  <div className="paper-meta">
+                    {meta.map((m) => (
+                      <span key={m.label}><b>{m.label}:</b> {m.valor}</span>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="paper-header-side">
+                <div>{loading ? '…' : `${total} aluno${total !== 1 ? 's' : ''}`}</div>
+                <div>{hoje}</div>
+              </div>
+            </header>
 
-          <div className="table-scroll">
-            <table className="table presenca-table">
-              <thead>
-                <tr>
-                  <th style={{ width: 60 }}>Nº</th>
-                  <th>Aluno</th>
-                  {months.map((m) => (
-                    <th key={m.label} className="center presenca-month-header">
-                      {m.label}
-                    </th>
-                  ))}
-                  <th className="center" style={{ width: 54 }}>Total</th>
-                </tr>
-              </thead>
-
-              <tbody>
-                {presencas.map((row) => {
-                  const total = totalPresencas(row);
-                  const pct = Math.round((total / slotKeys.length) * 100);
-                  return (
-                    <tr key={row.id}>
-                      <td style={{ color: 'var(--gray-500)', fontSize: 12 }}>{row.aluno_nr_matricula ?? '—'}</td>
-                      <td style={{ fontWeight: 500 }}>{row.aluno_nome}</td>
-
-                      {months.map((m) => {
-                        const v1 = Boolean((row as any)[m.slots[0]]);
-                        const v2 = Boolean((row as any)[m.slots[1]]);
-                        return (
-                          <td key={m.label} className="center presenca-month-cell">
-                            <div className="presenca-slot-pair">
-                              <PresencaCell value={v1} />
-                              <PresencaCell value={v2} />
-                            </div>
-                          </td>
-                        );
-                      })}
-                      <td className="center">
-                        <span
-                          className="presenca-total"
-                          style={{
-                            background: pct >= 75
-                              ? 'var(--success-bg)'
-                              : pct >= 40
-                                ? 'var(--warning-bg)'
-                                : 'var(--error-bg)',
-                            color: pct >= 75
-                              ? 'var(--success-txt)'
-                              : pct >= 40
-                                ? 'var(--warning-txt)'
-                                : 'var(--error-txt)',
-                          }}
-                        >
-                          {total}
+            {loading ? (
+              <div className="paper-empty">A carregar…</div>
+            ) : !total ? (
+              <div className="paper-empty">Nenhum aluno com estes filtros.</div>
+            ) : (
+              <>
+                {doc === 'catequistas' &&
+                  gruposCatequista.map((grupo, i) => (
+                    <section key={grupo.catequistaId} className={`grupo${grupoPorPagina && i > 0 ? ' grupo--nova-folha' : ''}`}>
+                      <h3 className="grupo-title">
+                        <span>
+                          {grupo.nome}
+                          {grupo.detalhe && <span className="grupo-detalhe"> — {grupo.detalhe}</span>}
                         </span>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      )}
+                        <span className="grupo-count">{grupo.alunos.length} aluno{grupo.alunos.length !== 1 ? 's' : ''}</span>
+                      </h3>
+                      <table className="paper-table">
+                        <thead>
+                          <tr>
+                            <th className="col-n">#</th>
+                            <th>Nome</th>
+                            <th>Catecismo</th>
+                            <th>Nascimento</th>
+                            <th>Encarregado</th>
+                            <th>Telemóvel</th>
+                            <th className="col-obs">Observações</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {grupo.alunos.map((aluno, idx) => (
+                            <tr key={aluno.id}>
+                              <td className="col-n">{idx + 1}</td>
+                              <td><strong>{aluno.nome_aluno}</strong></td>
+                              <td className="nowrap">{aluno.ano_catecismo ? `${aluno.ano_catecismo}º ano` : ''}</td>
+                              <td>{formatDate(aluno.data_nascimento)}</td>
+                              <td>{aluno.encarregado_nome}</td>
+                              <td>{aluno.telemovel}</td>
+                              <td className="col-obs" />
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </section>
+                  ))}
+
+                {doc === 'fichas' && (
+                  <table className="paper-table">
+                    <thead>
+                      <tr>
+                        <th>Nº</th>
+                        <th>Aluno</th>
+                        <th>Filiação</th>
+                        <th>Encarregado</th>
+                        <th>Morada</th>
+                        <th>Contactos</th>
+                        <th>Batismo</th>
+                        <th>Escola</th>
+                        <th>Catequese</th>
+                        <th>Paróquia</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {alunos.map((aluno) => (
+                        <tr key={aluno.id}>
+                          <td className="nowrap">
+                            {aluno.nr_matricula}
+                            <Sub>{aluno.ano_matricula}</Sub>
+                          </td>
+                          <td>
+                            <strong>{aluno.nome_aluno}</strong>
+                            <Sub>{join([formatDate(aluno.data_nascimento), aluno.naturalidade])}</Sub>
+                          </td>
+                          <td>
+                            {aluno.nome_pai && <div><span className="paper-label">Pai:</span> {aluno.nome_pai}</div>}
+                            {aluno.nome_mae && <div><span className="paper-label">Mãe:</span> {aluno.nome_mae}</div>}
+                          </td>
+                          <td>{aluno.encarregado_nome}</td>
+                          <td>
+                            {aluno.morada}
+                            <Sub>{join([aluno.codigo_postal, aluno.localidade], ' ')}</Sub>
+                          </td>
+                          <td>
+                            {aluno.telemovel}
+                            <Sub>{aluno.email}</Sub>
+                          </td>
+                          <td>
+                            {aluno.batizado ? 'Sim' : 'Não'}
+                            {aluno.batizado && <Sub>{join([formatDate(aluno.data_batismo), aluno.lugar_batismo])}</Sub>}
+                          </td>
+                          <td>
+                            {nomeDe(escolas, aluno.escola_id)}
+                            <Sub>{aluno.ano_escolar ? `${aluno.ano_escolar}º ano` : ''}</Sub>
+                          </td>
+                          <td>
+                            {aluno.ano_catecismo ? `${aluno.ano_catecismo}º ano` : ''}
+                            <Sub>{join([nomeDe(catequistas, aluno.catequista_id), nomeDe(centros, aluno.centro_id)])}</Sub>
+                          </td>
+                          <td>{nomeDe(paroquias, aluno.paroquia_id)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+
+                {doc === 'contactos' && (
+                  <table className="paper-table">
+                    <thead>
+                      <tr>
+                        <th>Aluno</th>
+                        <th>Encarregado</th>
+                        <th>Pais</th>
+                        <th>Telemóvel</th>
+                        <th>Email</th>
+                        <th>Morada</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {[...alunos]
+                        .sort((a, b) => a.nome_aluno.localeCompare(b.nome_aluno, 'pt'))
+                        .map((aluno) => (
+                          <tr key={aluno.id}>
+                            <td>
+                              <strong>{aluno.nome_aluno}</strong>
+                              <Sub>{aluno.ano_catecismo ? `${aluno.ano_catecismo}º ano` : ''}</Sub>
+                            </td>
+                            <td>{aluno.encarregado_nome}</td>
+                            <td>
+                              {aluno.nome_pai && <div>{aluno.nome_pai}</div>}
+                              {aluno.nome_mae && <div>{aluno.nome_mae}</div>}
+                            </td>
+                            <td className="nowrap">{aluno.telemovel}</td>
+                            <td>{aluno.email}</td>
+                            <td>
+                              {aluno.morada}
+                              <Sub>{join([aluno.codigo_postal, aluno.localidade], ' ')}</Sub>
+                            </td>
+                          </tr>
+                        ))}
+                    </tbody>
+                  </table>
+                )}
+
+                {doc === 'presencas' && (
+                  <>
+                    <table className="paper-table presenca-table">
+                      <thead>
+                        <tr>
+                          <th>Aluno</th>
+                          {months.map((m) => (
+                            <th key={m.label} className="center presenca-month-header">
+                              {m.label}
+                            </th>
+                          ))}
+                          <th className="center" style={{ width: 54 }}>Total</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {presencas.map((row) => (
+                          <tr key={row.id}>
+                            <td><strong>{row.aluno_nome}</strong></td>
+                            {months.map((m) => (
+                              <td key={m.label} className="center presenca-month-cell">
+                                <div className="presenca-slot-pair">
+                                  {m.slots.map((slot) => (
+                                    <PresencaCell key={slot} valor={row[slot] ?? null} />
+                                  ))}
+                                </div>
+                              </td>
+                            ))}
+                            <td className="center">
+                              <span className="presenca-total">{totalPresencas(row)}</span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </>
+                )}
+              </>
+            )}
+          </article>
+        </div>
+      </div>
     </div>
   );
 }

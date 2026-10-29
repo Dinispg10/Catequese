@@ -86,6 +86,20 @@ begin
 
 end $$;
 
+-- Duas sessões por mês: null = por marcar, true = presente, false = falta.
+do $$
+declare
+  coluna text;
+begin
+  foreach coluna in array array[
+    'out_1', 'out_2', 'nov_1', 'nov_2', 'dez_1', 'dez_2', 'jan_1', 'jan_2', 'fev_1', 'fev_2',
+    'mar_1', 'mar_2', 'abr_1', 'abr_2', 'mai_1', 'mai_2', 'jun_1', 'jun_2'
+  ]
+  loop
+    execute format('alter table presencas_mensais add column if not exists %I boolean default null', coluna);
+  end loop;
+end $$;
+
 create index if not exists presencas_mensais_filter_idx
   on presencas_mensais(catequista_id, ano_matricula, ano_catecismo);
 
