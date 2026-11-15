@@ -565,6 +565,12 @@ a {
   border-color: var(--success-border);
 }
 
+.alert.warning {
+  background: var(--warning-bg);
+  color: var(--warning-txt);
+  border-color: var(--warning-border);
+}
+
 /* ========== TABELAS ========== */
 .table-scroll {
   overflow: auto;
@@ -1334,7 +1340,7 @@ a {
 /* Filtros grandes: os quatro ocupam a largura toda, lado a lado. */
 .chips--lg {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
   gap: 10px;
 }
 
@@ -1562,6 +1568,135 @@ a {
 .modal-hint {
   margin-top: 10px;
   font-size: 12.5px;
+  color: var(--gray-500);
+}
+
+/* Registos desativados: mais apagados, numa secção própria no fim da lista. */
+.entity-row--inativo .entity-name,
+.entity-row--inativo .avatar {
+  opacity: 0.55;
+}
+
+.entity-group {
+  padding: 14px 18px 6px;
+  background: var(--gray-50);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--gray-500);
+}
+
+/* ========== ANO CATEQUÉTICO ========== */
+.ano-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+.ano-card-ano {
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 32px;
+  font-weight: 700;
+  line-height: 1.1;
+  color: var(--brand-900);
+}
+
+.ano-card-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.confirm-list {
+  margin: 8px 0 8px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.modal-body p + p {
+  margin-top: 8px;
+}
+
+/* ========== ANOS ANTERIORES ========== */
+.ano-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.ano-tab {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 120px;
+  padding: 10px 16px;
+  border: 1.5px solid var(--gray-200);
+  border-radius: var(--radius-lg);
+  background: var(--white);
+  font-family: var(--font);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--t), background var(--t);
+}
+
+.ano-tab:hover {
+  border-color: var(--brand-400);
+}
+
+.ano-tab--active {
+  border-color: var(--brand-500);
+  background: var(--brand-50);
+  box-shadow: 0 0 0 3px rgba(197, 160, 89, .14);
+}
+
+.ano-tab-ano {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--gray-900);
+}
+
+.ano-tab-total {
+  font-size: 12px;
+  color: var(--gray-500);
+}
+
+.toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.button.button--sm {
+  height: 32px;
+  padding: 0 12px;
+  font-size: 12.5px;
+}
+
+.select-cell {
+  display: inline-flex;
+  padding: 6px;
+  margin: -6px;
+}
+
+.select-cell input {
+  width: 17px;
+  height: 17px;
+  accent-color: var(--brand-600);
+  cursor: pointer;
+}
+
+.tag--success {
+  background: var(--success-bg);
+  color: var(--success-txt);
+}
+
+.tag--muted {
+  background: var(--gray-100);
   color: var(--gray-500);
 }
 

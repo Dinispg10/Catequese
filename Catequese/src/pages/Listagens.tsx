@@ -1,9 +1,11 @@
 import { useMemo, useState, type ReactNode } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { Aluno, PresencaMensal } from '../lib/types';
-import { fetchAlunos, fetchCatequistas, fetchCentros, fetchEscolas, fetchParoquias } from '../lib/api';
-import { anoCatecismoOptions, anoMatriculaOptions, formatDate, join } from '../lib/format';
+import { fetchAlunos, fetchCatequistas, fetchCentros, fetchContagemPorAno, fetchEscolas, fetchParoquias } from '../lib/api';
+import { useAnoAtivo } from '../lib/anoAtivo';
+import { anoCatecismoOptions, formatDate, join, opcoesTodas } from '../lib/format';
 import { months, totalPresencas } from '../lib/presencas';
 import SelectField from '../components/SelectField';
 import CheckboxField from '../components/CheckboxField';
@@ -102,7 +104,14 @@ function Sub({ children }: { children: ReactNode }) {
 
 export default function Listagens() {
   const [doc, setDoc] = useState<DocKey>('catequistas');
-  const [filtros, setFiltros] = useState<Filtros>({ ano: '', anoCatecismo: '', catequista: '', centro: '' });
+  const [searchParams] = useSearchParams();
+  // Vindo de "Anos anteriores", abre logo no ano escolhido (?ano=2025).
+  const [filtrosEscolhidos, setFiltros] = useState<Filtros>({
+    ano: searchParams.get('ano') ?? '',
+    anoCatecismo: '',
+    catequista: '',
+    centro: ''
+  });
   const [grupoPorPagina, setGrupoPorPagina] = useState(true);
 
   const setFiltro = (campo: keyof Filtros) => (valor: string) => setFiltros((f) => ({ ...f, [campo]: valor }));
@@ -111,29 +120,42 @@ export default function Listagens() {
   const { data: centros = [] } = useQuery({ queryKey: ['centros'], queryFn: fetchCentros });
   const { data: paroquias = [] } = useQuery({ queryKey: ['paroquias'], queryFn: fetchParoquias });
   const { data: escolas = [] } = useQuery({ queryKey: ['escolas'], queryFn: fetchEscolas });
+  const { data: contagem = [] } = useQuery({ queryKey: ['alunos', 'contagem-por-ano'], queryFn: fetchContagemPorAno });
+  const { anoAtivo } = useAnoAtivo();
+
+  // Sem ano escolhido, é o ano ativo: nunca se misturam anos numa folha.
+  const filtros: Filtros = { ...filtrosEscolhidos, ano: filtrosEscolhidos.ano || (anoAtivo !== undefined ? String(anoAtivo) : '') };
+  const anoOptions = useMemo(() => {
+    const anos = new Set(contagem.map((c) => c.ano));
+    if (anoAtivo !== undefined) anos.add(anoAtivo);
+    return [...anos]
+      .sort((a, b) => b - a)
+      .map((a) => ({ value: String(a), label: a === anoAtivo ? `${a} (ano ativo)` : String(a) }));
+  }, [contagem, anoAtivo]);
 
   const { data: alunos = [], isLoading: loadingAlunos } = useQuery({
     queryKey: ['alunos', 'listagem', filtros],
     queryFn: () => fetchAlunos({
-      ano_matricula: filtros.ano ? Number(filtros.ano) : undefined,
+      ano_matricula: Number(filtros.ano),
       ano_catecismo: filtros.anoCatecismo ? Number(filtros.anoCatecismo) : undefined,
       catequista_id: filtros.catequista || undefined,
       centro_id: filtros.centro || undefined
     }),
-    enabled: doc !== 'presencas'
+    enabled: doc !== 'presencas' && Boolean(filtros.ano)
   });
 
   const { data: presencas = [], isLoading: loadingPresencas } = useQuery({
     queryKey: ['presencas-listagem', filtros],
     queryFn: () => fetchPresencas(filtros),
-    enabled: doc === 'presencas'
+    enabled: doc === 'presencas' && Boolean(filtros.ano)
   });
 
   const nomeDe = (lista: { id: string; nome: string }[], id: string | null) =>
     (id && lista.find((item) => item.id === id)?.nome) || '';
 
-  const catequistaOptions = useMemo(() => catequistas.map((i) => ({ value: i.id, label: i.nome })), [catequistas]);
-  const centroOptions = useMemo(() => centros.map((i) => ({ value: i.id, label: i.nome })), [centros]);
+  // Todos, mesmo os que já não estão ativos, para se poderem tirar listas de anos anteriores.
+  const catequistaOptions = useMemo(() => opcoesTodas(catequistas), [catequistas]);
+  const centroOptions = useMemo(() => opcoesTodas(centros), [centros]);
 
   // Um grupo por catequista (os alunos sem catequista ficam no fim), alunos por ordem alfabética.
   const gruposCatequista = useMemo(() => {
@@ -202,7 +224,7 @@ export default function Listagens() {
 
           <div className="docs-panel-title">Filtros</div>
           <div className="form">
-            <SelectField label="Ano matrícula" value={filtros.ano} onChange={setFiltro('ano')} options={anoMatriculaOptions} placeholder="Todos" />
+            <SelectField label="Ano matrícula" value={filtros.ano} onChange={setFiltro('ano')} options={anoOptions} placeholder="Ano ativo" />
             <SelectField label="Ano catecismo" value={filtros.anoCatecismo} onChange={setFiltro('anoCatecismo')} options={anoCatecismoOptions} placeholder="Todos" />
             <SelectField label="Catequista" value={filtros.catequista} onChange={setFiltro('catequista')} options={catequistaOptions} placeholder="Todos" />
             <SelectField label="Centro" value={filtros.centro} onChange={setFiltro('centro')} options={centroOptions} placeholder="Todos" />

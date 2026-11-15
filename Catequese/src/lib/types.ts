@@ -1,6 +1,8 @@
 export interface SimpleEntity {
   id: string;
   nome: string;
+  /** false = já não está ativo (não aparece no ano novo, mas fica nos anteriores). */
+  ativo?: boolean;
 }
 
 export interface Aluno {
@@ -27,6 +29,8 @@ export interface Aluno {
   email: string | null;
   ano_catecismo: number | null;
   ano_escolar: number | null;
+  /** A matrícula do ano anterior de onde esta foi renovada. */
+  renovada_de?: string | null;
 }
 
 /** Uma sessão: null = ainda não marcada, true = presente, false = falta. */

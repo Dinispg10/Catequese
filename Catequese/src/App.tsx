@@ -4,6 +4,7 @@ import Alunos from './pages/Alunos';
 import Definicoes from './pages/Definicoes';
 import Presencas from './pages/Presencas';
 import Listagens from './pages/Listagens';
+import AnosAnteriores from './pages/AnosAnteriores';
 import AppShell from './components/AppShell';
 import { useAuth } from './lib/auth';
 
@@ -35,6 +36,7 @@ export default function App() {
         <Route path="definicoes" element={<Definicoes />} />
         <Route path="presencas" element={<Presencas />} />
         <Route path="listagens" element={<Listagens />} />
+        <Route path="anos-anteriores" element={<AnosAnteriores />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

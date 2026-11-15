@@ -1,5 +1,9 @@
+import { useEffect } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../lib/auth';
+import { supabase } from '../lib/supabase';
+import { useAnoAtivo } from '../lib/anoAtivo';
 import BotaoAtualizar from './BotaoAtualizar';
 
 const icons = {
@@ -44,10 +48,33 @@ const icons = {
       <path d="M11 2h2v5h5v2h-5v13h-2v-13h-5v-2h5z" />
     </svg>
   ),
+  anteriores: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="21 8 21 21 3 21 3 8" />
+      <rect x="1" y="3" width="22" height="5" />
+      <line x1="10" y1="12" x2="14" y2="12" />
+    </svg>
+  ),
 };
 
 export default function AppShell() {
   const { signOut } = useAuth();
+  const queryClient = useQueryClient();
+  const { anoAtivo, error: erroAno } = useAnoAtivo();
+
+  // Quando outro computador começa um ano novo, este muda logo também.
+  useEffect(() => {
+    const channel = supabase
+      .channel('configuracao-changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'configuracao' }, () => {
+        queryClient.invalidateQueries({ queryKey: ['configuracao'] });
+        queryClient.invalidateQueries({ queryKey: ['alunos'] });
+      })
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [queryClient]);
 
   return (
     <div className="shell">
@@ -56,7 +83,7 @@ export default function AppShell() {
           <div className="sidebar-brand-icon">{icons.cross}</div>
           <div>
             <div className="sidebar-brand-text">Catequese</div>
-            <div className="sidebar-brand-sub">Gestão Paroquial</div>
+            <div className="sidebar-brand-sub">{anoAtivo !== undefined ? `Ano ${anoAtivo}` : 'Gestão Paroquial'}</div>
           </div>
         </div>
 
@@ -72,6 +99,10 @@ export default function AppShell() {
           <NavLink to="/listagens" className={({ isActive }) => (isActive ? 'active' : '')}>
             {icons.listagens}
             Listagens
+          </NavLink>
+          <NavLink to="/anos-anteriores" className={({ isActive }) => (isActive ? 'active' : '')}>
+            {icons.anteriores}
+            Anos anteriores
           </NavLink>
           <NavLink to="/definicoes" className={({ isActive }) => (isActive ? 'active' : '')}>
             {icons.definicoes}
@@ -89,6 +120,12 @@ export default function AppShell() {
       </aside>
 
       <main className="content">
+        {erroAno && (
+          <div className="alert" style={{ marginBottom: 16 }}>
+            Não foi possível ler o ano ativo. Falta correr o ficheiro <b>supabase/anos-catequeticos.sql</b> no SQL Editor
+            do Supabase. ({erroAno.message})
+          </div>
+        )}
         <Outlet />
       </main>
     </div>

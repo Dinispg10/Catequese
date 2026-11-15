@@ -3,7 +3,8 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { Aluno, Presenca, PresencaMensal } from '../lib/types';
 import { fetchCatequistas } from '../lib/api';
-import { anoCatecismoOptions, anoMatriculaOptions, iniciais } from '../lib/format';
+import { anoCatecismoOptions, iniciais, opcoesAtivas } from '../lib/format';
+import { useAnoAtivo } from '../lib/anoAtivo';
 import { months, totalPresencas, type SlotKey } from '../lib/presencas';
 import ChipSelect from '../components/ChipSelect';
 import PresencaCell from '../components/PresencaCell';
@@ -28,27 +29,27 @@ async function ensurePresencas(alunos: Aluno[]) {
 
 export default function Presencas() {
   const [filterCatequista, setFilterCatequista] = useState('');
-  const [filterAnoMatricula, setFilterAnoMatricula] = useState('');
   const [filterAnoCatecismo, setFilterAnoCatecismo] = useState('');
   const [rows, setRows] = useState<PresencaRow[]>([]);
   const [loading, setLoading] = useState(false);
   const refreshTimeout = useRef<number | null>(null);
 
   const { data: catequistas = [] } = useQuery({ queryKey: ['catequistas'], queryFn: fetchCatequistas });
+  const { anoAtivo } = useAnoAtivo();
 
+  // Só o ano ativo: os anos anteriores consultam-se nas Listagens.
   const carregar = async (criarEmFalta: boolean) => {
-    let alunosQuery = supabase.from('alunos').select('*');
+    if (anoAtivo === undefined) return;
+    let alunosQuery = supabase.from('alunos').select('*').eq('ano_matricula', anoAtivo);
     if (filterCatequista) alunosQuery = alunosQuery.eq('catequista_id', filterCatequista);
-    if (filterAnoMatricula) alunosQuery = alunosQuery.eq('ano_matricula', Number(filterAnoMatricula));
     if (filterAnoCatecismo) alunosQuery = alunosQuery.eq('ano_catecismo', Number(filterAnoCatecismo));
     const { data: alunosData } = await alunosQuery;
     const alunos = alunosData ?? [];
 
     if (criarEmFalta) await ensurePresencas(alunos);
 
-    let presencasQuery = supabase.from('presencas_mensais').select('*');
+    let presencasQuery = supabase.from('presencas_mensais').select('*').eq('ano_matricula', anoAtivo);
     if (filterCatequista) presencasQuery = presencasQuery.eq('catequista_id', filterCatequista);
-    if (filterAnoMatricula) presencasQuery = presencasQuery.eq('ano_matricula', Number(filterAnoMatricula));
     if (filterAnoCatecismo) presencasQuery = presencasQuery.eq('ano_catecismo', Number(filterAnoCatecismo));
     const { data: presencasData } = await presencasQuery;
 
@@ -63,7 +64,7 @@ export default function Presencas() {
   useEffect(() => {
     setLoading(true);
     carregar(true).finally(() => setLoading(false));
-  }, [filterCatequista, filterAnoMatricula, filterAnoCatecismo]);
+  }, [anoAtivo, filterCatequista, filterAnoCatecismo]);
 
   useEffect(() => {
     const channel = supabase
@@ -77,7 +78,7 @@ export default function Presencas() {
       if (refreshTimeout.current) window.clearTimeout(refreshTimeout.current);
       supabase.removeChannel(channel);
     };
-  }, [filterCatequista, filterAnoMatricula, filterAnoCatecismo]);
+  }, [anoAtivo, filterCatequista, filterAnoCatecismo]);
 
   const handleToggle = async (id: string, slot: SlotKey, value: Presenca) => {
     // Atualização otimista; se falhar, volta a ler da base de dados.
@@ -97,17 +98,13 @@ export default function Presencas() {
     if (error) carregar(false);
   };
 
-  const catequistaOptions = useMemo(
-    () => catequistas.map((item) => ({ value: item.id, label: item.nome })),
-    [catequistas]
-  );
+  const catequistaOptions = useMemo(() => opcoesAtivas(catequistas, filterCatequista), [catequistas, filterCatequista]);
 
   const presentesPorSessao = (slot: SlotKey) => rows.filter((row) => row[slot] === true).length;
 
-  const temFiltros = Boolean(filterCatequista || filterAnoMatricula || filterAnoCatecismo);
+  const temFiltros = Boolean(filterCatequista || filterAnoCatecismo);
   const limparFiltros = () => {
     setFilterCatequista('');
-    setFilterAnoMatricula('');
     setFilterAnoCatecismo('');
   };
 
@@ -115,7 +112,7 @@ export default function Presencas() {
     <div className="page">
       <header className="page-header">
         <div>
-          <h1>Mapa de Presenças</h1>
+          <h1>Mapa de Presenças {anoAtivo}</h1>
           <p className="page-subtitle">
             Carrega num quadrado para marcar a presença. Com um catequista escolhido, carregar em "1ª" ou "2ª" marca a sessão toda.
           </p>
@@ -124,7 +121,6 @@ export default function Presencas() {
 
       <div className="chips">
         <ChipSelect label="Catequista" value={filterCatequista} onChange={setFilterCatequista} options={catequistaOptions} />
-        <ChipSelect label="Ano" value={filterAnoMatricula} onChange={setFilterAnoMatricula} options={anoMatriculaOptions} />
         <ChipSelect label="Catecismo" value={filterAnoCatecismo} onChange={setFilterAnoCatecismo} options={anoCatecismoOptions} />
         {temFiltros && (
           <button type="button" className="chip-clear" onClick={limparFiltros}>

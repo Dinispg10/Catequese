@@ -2,8 +2,18 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { SimpleEntity } from '../lib/types';
-import { fetchCatequistas, fetchCentros, fetchEscolas, fetchParoquias } from '../lib/api';
-import { iniciais, join } from '../lib/format';
+import {
+  fetchCatequistas,
+  fetchCentros,
+  fetchContagemPorAno,
+  fetchEscolas,
+  fetchParoquias,
+  lerTodosAlunos,
+  setAnoAtivo,
+  setAtivo
+} from '../lib/api';
+import { useAnoAtivo } from '../lib/anoAtivo';
+import { estaAtivo, iniciais, join, opcoesAtivas } from '../lib/format';
 import FormField from '../components/FormField';
 import SelectField from '../components/SelectField';
 import ConfirmDialog from '../components/ConfirmDialog';
@@ -79,12 +89,10 @@ const secoes: Secao[] = [
   }
 ];
 
-/** Só as colunas que dizem onde cada aluno está ligado, para contar os usos. */
-async function fetchUsos() {
-  const { data, error } = await supabase.from('alunos').select('catequista_id,escola_id,centro_id,paroquia_id');
-  if (error) throw new Error(error.message);
-  return data ?? [];
-}
+type Uso = { catequista_id: string | null; escola_id: string | null; centro_id: string | null; paroquia_id: string | null };
+
+/** Só as colunas que dizem onde cada aluno está ligado, para contar os usos (todos os anos). */
+const fetchUsos = () => lerTodosAlunos<Uso>('catequista_id,escola_id,centro_id,paroquia_id');
 
 const plural = (n: number, um: string, varios: string) => `${n} ${n === 1 ? um : varios}`;
 
@@ -97,13 +105,18 @@ interface EditModalProps {
   onSave: () => void;
   onDelete?: () => void;
   deleteBloqueado?: string | null;
+  /** Desativar / voltar a ativar (só em registos que já existem). */
+  ativo?: boolean;
+  onToggleAtivo?: () => void;
   isNew: boolean;
   saving: boolean;
   children: ReactNode;
   error?: string | null;
 }
 
-function EditModal({ title, onClose, onSave, onDelete, deleteBloqueado, isNew, saving, children, error }: EditModalProps) {
+function EditModal({
+  title, onClose, onSave, onDelete, deleteBloqueado, ativo, onToggleAtivo, isNew, saving, children, error
+}: EditModalProps) {
   // Fechar com Escape
   useEffect(() => {
     const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
@@ -125,7 +138,7 @@ function EditModal({ title, onClose, onSave, onDelete, deleteBloqueado, isNew, s
         <div className="modal-header">
           <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <span style={{ fontSize: 15, letterSpacing: '-0.01em' }}>{isNew ? `Novo: ${title}` : title}</span>
-            {!isNew && <span className="edit-modal-badge">Editar</span>}
+            {!isNew && <span className="edit-modal-badge">{ativo === false ? 'Já não ativo' : 'Editar'}</span>}
           </h3>
           <button className="modal-close-btn" onClick={onClose} type="button" aria-label="Fechar">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="16" height="16">
@@ -146,6 +159,11 @@ function EditModal({ title, onClose, onSave, onDelete, deleteBloqueado, isNew, s
               Eliminar
             </button>
           )}
+          {!isNew && onToggleAtivo && (
+            <button type="button" className="button secondary" onClick={onToggleAtivo}>
+              {ativo === false ? 'Voltar a ativar' : 'Desativar'}
+            </button>
+          )}
           <div style={{ flex: 1 }} />
           <button type="button" className="button secondary" onClick={onClose}>
             Cancelar
@@ -156,6 +174,85 @@ function EditModal({ title, onClose, onSave, onDelete, deleteBloqueado, isNew, s
         </div>
       </form>
     </div>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────
+// Ano catequético
+// ──────────────────────────────────────────────────────────────
+function CartaoAno() {
+  const queryClient = useQueryClient();
+  const { anoAtivo } = useAnoAtivo();
+  const { data: contagem = [] } = useQuery({ queryKey: ['alunos', 'contagem-por-ano'], queryFn: fetchContagemPorAno });
+  const [confirmar, setConfirmar] = useState<'avancar' | 'recuar' | null>(null);
+  const [aGuardar, setAGuardar] = useState(false);
+  const [erro, setErro] = useState<string | null>(null);
+
+  if (anoAtivo === undefined) return null;
+
+  const totalAtivo = contagem.find((c) => c.ano === anoAtivo)?.total ?? 0;
+  const novoAno = confirmar === 'recuar' ? anoAtivo - 1 : anoAtivo + 1;
+
+  const mudarAno = async () => {
+    setAGuardar(true);
+    setErro(null);
+    try {
+      await setAnoAtivo(novoAno);
+      queryClient.invalidateQueries({ queryKey: ['configuracao'] });
+      queryClient.invalidateQueries({ queryKey: ['alunos'] });
+    } catch (e) {
+      setErro(`Não foi possível mudar o ano: ${(e as Error).message}`);
+    }
+    setAGuardar(false);
+    setConfirmar(null);
+  };
+
+  return (
+    <section className="card ano-card">
+      <div className="ano-card-info">
+        <span className="docs-panel-title">Ano catequético</span>
+        <div className="ano-card-ano">{anoAtivo}</div>
+        <p className="entity-desc">
+          {plural(totalAtivo, 'matrícula', 'matrículas')} neste ano. As Matrículas e as Presenças mostram só este ano.
+        </p>
+        {erro && <div className="alert" style={{ marginTop: 10 }}>{erro}</div>}
+      </div>
+      <div className="ano-card-actions">
+        <button type="button" className="button" onClick={() => setConfirmar('avancar')}>
+          Começar o ano {anoAtivo + 1}
+        </button>
+        <button type="button" className="chip-clear" onClick={() => setConfirmar('recuar')}>
+          Voltar a {anoAtivo - 1}
+        </button>
+      </div>
+
+      <ConfirmDialog
+        open={confirmar !== null}
+        title={confirmar === 'recuar' ? `Voltar ao ano ${novoAno}?` : `Começar o ano ${novoAno}?`}
+        description={
+          confirmar === 'recuar' ? (
+            <p>
+              O ano ativo volta a ser {novoAno}. As matrículas de {anoAtivo} não se perdem: voltam a aparecer quando
+              se avançar outra vez para {anoAtivo}.
+            </p>
+          ) : (
+            <>
+              <p>Em todos os computadores:</p>
+              <ul className="confirm-list">
+                <li>as Matrículas e as Presenças passam a mostrar {novoAno}, e começam vazias;</li>
+                <li>as {plural(totalAtivo, 'matrícula', 'matrículas')} de {anoAtivo} passam para "Anos anteriores", onde se renovam os alunos que continuam;</li>
+                <li>não se apaga nada.</li>
+              </ul>
+            </>
+          )
+        }
+        confirmLabel={confirmar === 'recuar' ? `Voltar a ${novoAno}` : `Começar ${novoAno}`}
+        danger={false}
+        busy={aGuardar}
+        onCancel={() => setConfirmar(null)}
+        onConfirm={mudarAno}
+      />
+    </section>
   );
 }
 
@@ -185,12 +282,14 @@ export default function Definicoes() {
     escola: escolas
   };
 
-  const paroquiaOptions = useMemo(() => paroquias.map((p) => ({ value: p.id, label: p.nome })), [paroquias]);
+  const paroquiaOptions = useMemo(
+    () => opcoesAtivas(paroquias, modal?.item.paroquia_id),
+    [paroquias, modal?.item.paroquia_id]
+  );
 
-  // Quantos alunos (e centros, no caso das paróquias) usam cada registo.
+  // Quantos alunos (de todos os anos) e centros, no caso das paróquias, usam cada registo.
   const contarAlunos = (type: SectionType, id: string) => {
-    const coluna = { catequista: 'catequista_id', centro: 'centro_id', paroquia: 'paroquia_id', escola: 'escola_id' }[type] as
-      'catequista_id' | 'centro_id' | 'paroquia_id' | 'escola_id';
+    const coluna = ({ catequista: 'catequista_id', centro: 'centro_id', paroquia: 'paroquia_id', escola: 'escola_id' } as const)[type];
     return usos.filter((u) => u[coluna] === id).length;
   };
   const contarCentros = (paroquiaId: string) => centros.filter((c) => c.paroquia_id === paroquiaId).length;
@@ -208,12 +307,14 @@ export default function Definicoes() {
     const centrosLigados = type === 'paroquia' ? contarCentros(item.id) : 0;
     if (!alunos && !centrosLigados) return null;
     const ligados = join([alunos ? plural(alunos, 'aluno', 'alunos') : null, centrosLigados ? plural(centrosLigados, 'centro', 'centros') : null], ' e ');
-    return `Não é possível eliminar: ainda tem ${ligados} associados. Muda-os primeiro para outro registo.`;
+    return `Não dá para eliminar: tem ${ligados} associados (contando os anos anteriores). Usa "Desativar": deixa de aparecer no ano ativo, mas os anos anteriores ficam como estão.`;
   };
 
   const secao = secoes.find((s) => s.key === secaoAtiva)!;
   const termo = search.trim().toLowerCase();
-  const itens = listas[secaoAtiva].filter((item) => !termo || item.nome.toLowerCase().includes(termo));
+  const encontrados = listas[secaoAtiva].filter((item) => !termo || item.nome.toLowerCase().includes(termo));
+  const ativos = encontrados.filter(estaAtivo);
+  const inativos = encontrados.filter((item) => !estaAtivo(item));
 
   const escolherSecao = (key: SectionType) => {
     setSecaoAtiva(key);
@@ -254,7 +355,7 @@ export default function Definicoes() {
     }
     const isDuplicate = listas[type].some((r) => r.nome.toLowerCase() === nome.toLowerCase() && r.id !== item.id);
     if (isDuplicate) {
-      setModalError('Já existe um registo com esse nome.');
+      setModalError('Já existe um registo com esse nome (pode estar em "Já não ativos").');
       return;
     }
 
@@ -272,6 +373,18 @@ export default function Definicoes() {
     }
     closeModal();
     recarregar(type);
+  };
+
+  const handleToggleAtivo = async () => {
+    if (!modal) return;
+    const { type, item } = modal;
+    try {
+      await setAtivo(type, item.id, !estaAtivo(item));
+      closeModal();
+      recarregar(type);
+    } catch (e) {
+      setModalError(`Não foi possível mudar: ${(e as Error).message}`);
+    }
   };
 
   const handleDelete = async () => {
@@ -296,14 +409,35 @@ export default function Definicoes() {
   const isNew = modal ? !modal.item.id : true;
   const secaoModal = modal ? secoes.find((s) => s.key === modal.type)! : null;
 
+  const linha = (item: CentroCatequese) => (
+    <li key={item.id}>
+      <button
+        type="button"
+        className={`entity-row${modal?.item.id === item.id ? ' entity-row--selected' : ''}${estaAtivo(item) ? '' : ' entity-row--inativo'}`}
+        onClick={() => openEdit(item)}
+      >
+        <span className="avatar">{iniciais(item.nome)}</span>
+        <span className="entity-text">
+          <span className="entity-name">{item.nome}</span>
+          <span className="cell-sub">{descreverUso(secaoAtiva, item)}</span>
+        </span>
+        <svg className="entity-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <polyline points="9 18 15 12 9 6" />
+        </svg>
+      </button>
+    </li>
+  );
+
   return (
     <div className="page">
       <header className="page-header">
         <div>
           <h1>Definições</h1>
-          <p className="page-subtitle">As listas que se escolhem nas fichas dos alunos.</p>
+          <p className="page-subtitle">O ano catequético e as listas que se escolhem nas fichas dos alunos.</p>
         </div>
       </header>
+
+      <CartaoAno />
 
       <div className="side-layout">
         <aside className="docs-panel">
@@ -319,7 +453,7 @@ export default function Definicoes() {
                 <span className="doc-option-icon">{s.icon}</span>
                 <span>
                   <span className="doc-option-title">{s.titulo}</span>
-                  <span className="doc-option-desc">{plural(listas[s.key].length, 'registo', 'registos')}</span>
+                  <span className="doc-option-desc">{plural(listas[s.key].filter(estaAtivo).length, 'ativo', 'ativos')}</span>
                 </span>
               </button>
             ))}
@@ -351,7 +485,7 @@ export default function Definicoes() {
             </div>
           )}
 
-          {itens.length === 0 ? (
+          {encontrados.length === 0 ? (
             <div className="table-state">
               <span>
                 {termo
@@ -361,24 +495,13 @@ export default function Definicoes() {
             </div>
           ) : (
             <ul className="entity-list">
-              {itens.map((item) => (
-                <li key={item.id}>
-                  <button
-                    type="button"
-                    className={`entity-row${modal?.item.id === item.id ? ' entity-row--selected' : ''}`}
-                    onClick={() => openEdit(item)}
-                  >
-                    <span className="avatar">{iniciais(item.nome)}</span>
-                    <span className="entity-text">
-                      <span className="entity-name">{item.nome}</span>
-                      <span className="cell-sub">{descreverUso(secaoAtiva, item)}</span>
-                    </span>
-                    <svg className="entity-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <polyline points="9 18 15 12 9 6" />
-                    </svg>
-                  </button>
-                </li>
-              ))}
+              {ativos.map(linha)}
+              {inativos.length > 0 && (
+                <>
+                  <li className="entity-group">Já não ativos — continuam nos anos anteriores</li>
+                  {inativos.map(linha)}
+                </>
+              )}
             </ul>
           )}
         </section>
@@ -392,6 +515,8 @@ export default function Definicoes() {
           onSave={handleSave}
           onDelete={() => setConfirmOpen(true)}
           deleteBloqueado={isNew ? null : motivoBloqueio(modal.type, modal.item)}
+          ativo={estaAtivo(modal.item)}
+          onToggleAtivo={handleToggleAtivo}
           isNew={isNew}
           saving={saving}
           error={modalError}

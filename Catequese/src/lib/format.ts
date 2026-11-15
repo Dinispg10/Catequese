@@ -30,13 +30,23 @@ export function iniciais(nome: string) {
   return (primeira + ultima).toUpperCase();
 }
 
-const anoAtual = new Date().getFullYear();
+/** Um registo está ativo a menos que tenha sido desativado nas Definições. */
+export const estaAtivo = (item: { ativo?: boolean }) => item.ativo !== false;
 
-/** Anos de matrícula para escolher: do próximo ano até seis anos atrás. */
-export const anoMatriculaOptions = Array.from({ length: 8 }, (_, i) => {
-  const ano = String(anoAtual + 1 - i);
-  return { value: ano, label: ano };
-});
+/**
+ * Opções para escolher num formulário ou filtro do ano ativo: só os registos ativos,
+ * mais o valor que já lá estiver escolhido (para não "desaparecer" de uma ficha antiga).
+ */
+export function opcoesAtivas(lista: { id: string; nome: string; ativo?: boolean }[], valorAtual?: string | null) {
+  return lista
+    .filter((item) => estaAtivo(item) || item.id === valorAtual)
+    .map((item) => ({ value: item.id, label: estaAtivo(item) ? item.nome : `${item.nome} (já não ativo)` }));
+}
+
+/** Opções com todos os registos, para consultar anos anteriores. */
+export function opcoesTodas(lista: { id: string; nome: string; ativo?: boolean }[]) {
+  return lista.map((item) => ({ value: item.id, label: estaAtivo(item) ? item.nome : `${item.nome} (já não ativo)` }));
+}
 
 export const anoCatecismoOptions = Array.from({ length: 10 }, (_, i) => ({
   value: String(i + 1),
