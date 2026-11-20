@@ -1818,9 +1818,9 @@ a {
   border-radius: var(--radius-lg);
 }
 
+/* Sempre no tamanho real de uma A4; a página encolhe-a (zoom) para caber no ecrã. */
 .paper {
-  width: 100%;
-  max-width: 210mm;
+  width: 210mm;
   min-height: 297mm;
   margin: 0 auto;
   padding: 44px 48px;
@@ -1832,8 +1832,28 @@ a {
 }
 
 .paper--landscape {
-  max-width: 297mm;
+  width: 297mm;
   min-height: 210mm;
+}
+
+/* Moldura de impressão: no ecrã só mostra o conteúdo; as margens são para o papel. */
+.folha {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.folha > thead,
+.folha > tfoot {
+  display: none;
+}
+
+.folha-conteudo {
+  padding: 0;
+  vertical-align: top;
+}
+
+.folha + .folha {
+  margin-top: 28px;
 }
 
 .paper-header {
@@ -1921,6 +1941,8 @@ a {
   padding: 7px 8px;
   border-bottom: 1px solid var(--gray-200);
   vertical-align: top;
+  /* Emails e moradas compridas partem em vez de empurrar a tabela para fora da folha. */
+  overflow-wrap: anywhere;
 }
 
 .paper-table tr {
@@ -2132,12 +2154,38 @@ a {
     border-radius: 0 !important;
   }
 
+  /* A página não tem margem (ver Listagens); as laterais ficam aqui e as de cima e
+     de baixo vêm da moldura, que se repete em cada página. */
   .paper {
-    max-width: none !important;
+    zoom: 1 !important;
+    width: auto !important;
     min-height: 0 !important;
-    padding: 0 !important;
+    padding: 0 12mm !important;
     box-shadow: none !important;
     font-size: 9pt !important;
+  }
+
+  .folha > thead {
+    display: table-header-group !important;
+  }
+
+  .folha > tfoot {
+    display: table-footer-group !important;
+  }
+
+  .folha-margem {
+    height: 12mm;
+    padding: 0 !important;
+    border: none !important;
+  }
+
+  .folha + .folha {
+    margin-top: 0 !important;
+  }
+
+  .folha--nova {
+    break-before: page;
+    page-break-before: always;
   }
 
   .paper-title {
@@ -2165,11 +2213,5 @@ a {
 
   .grupo .paper-table td {
     height: 22px !important;
-  }
-
-  .grupo--nova-folha {
-    margin-top: 0 !important;
-    break-before: page;
-    page-break-before: always;
   }
 }

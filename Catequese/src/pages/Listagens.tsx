@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
@@ -94,6 +94,21 @@ async function fetchPresencas(filtros: Filtros): Promise<PresencaComAluno[]> {
     .filter((row) => !filtros.centro || alunosMap.get(row.aluno_id)?.centro_id === filtros.centro)
     .map((row) => ({ ...row, aluno_nome: alunosMap.get(row.aluno_id)?.nome_aluno ?? 'Sem nome' }))
     .sort((a, b) => a.aluno_nome.localeCompare(b.aluno_nome, 'pt'));
+}
+
+/**
+ * Moldura de impressão. A página imprime-se sem margem (para não sair data, hora e
+ * endereço), e são o cabeçalho e o rodapé vazios desta tabela que fazem de margem:
+ * o motor de impressão repete-os no topo e no fundo de cada página.
+ */
+function Folha({ novaFolha = false, children }: { novaFolha?: boolean; children: ReactNode }) {
+  return (
+    <table className={`folha${novaFolha ? ' folha--nova' : ''}`}>
+      <thead><tr><td className="folha-margem" /></tr></thead>
+      <tfoot><tr><td className="folha-margem" /></tr></tfoot>
+      <tbody><tr><td className="folha-conteudo">{children}</td></tr></tbody>
+    </table>
+  );
 }
 
 /** Linha secundária, mais pequena, dentro de uma célula. */
@@ -192,6 +207,88 @@ export default function Listagens() {
 
   const hoje = new Date().toLocaleDateString('pt-PT');
 
+  // A folha é desenhada no tamanho real de uma A4 e encolhida para caber no ecrã,
+  // para a pré-visualização ser igual ao que sai na impressora.
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const [escala, setEscala] = useState(1);
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const larguraFolha = ((docAtual.deitado ? 297 : 210) * 96) / 25.4;
+    const medir = () => {
+      const estilo = getComputedStyle(el);
+      const disponivel = el.clientWidth - parseFloat(estilo.paddingLeft) - parseFloat(estilo.paddingRight);
+      setEscala(Math.min(1, disponivel / larguraFolha));
+    };
+    medir();
+    const observador = new ResizeObserver(medir);
+    observador.observe(el);
+    return () => observador.disconnect();
+  }, [docAtual.deitado]);
+
+  const cabecalho = (
+    <header className="paper-header">
+      <div>
+        <div className="paper-brand">
+          <svg viewBox="0 0 24 24" fill="currentColor" width="12" height="12">
+            <path d="M11 2h2v5h5v2h-5v13h-2v-13h-5v-2h5z" />
+          </svg>
+          Catequese · Gestão Paroquial
+        </div>
+        <h2 className="paper-title">{docAtual.titulo}</h2>
+        {meta.length > 0 && (
+          <div className="paper-meta">
+            {meta.map((m) => (
+              <span key={m.label}><b>{m.label}:</b> {m.valor}</span>
+            ))}
+          </div>
+        )}
+      </div>
+      <div className="paper-header-side">
+        <div>{loading ? '…' : `${total} aluno${total !== 1 ? 's' : ''}`}</div>
+        <div>{hoje}</div>
+      </div>
+    </header>
+  );
+
+  const renderGrupo = (grupo: (typeof gruposCatequista)[number]) => (
+    <section key={grupo.catequistaId} className="grupo">
+      <h3 className="grupo-title">
+        <span>
+          {grupo.nome}
+          {grupo.detalhe && <span className="grupo-detalhe"> — {grupo.detalhe}</span>}
+        </span>
+        <span className="grupo-count">{grupo.alunos.length} aluno{grupo.alunos.length !== 1 ? 's' : ''}</span>
+      </h3>
+      <table className="paper-table">
+        <thead>
+          <tr>
+            <th className="col-n">#</th>
+            <th>Nome</th>
+            <th>Catecismo</th>
+            <th>Nascimento</th>
+            <th>Encarregado</th>
+            <th>Telemóvel</th>
+            <th className="col-obs">Observações</th>
+          </tr>
+        </thead>
+        <tbody>
+          {grupo.alunos.map((aluno, idx) => (
+            <tr key={aluno.id}>
+              <td className="col-n">{idx + 1}</td>
+              <td><strong>{aluno.nome_aluno}</strong></td>
+              <td className="nowrap">{aluno.ano_catecismo ? `${aluno.ano_catecismo}º ano` : ''}</td>
+              <td>{formatDate(aluno.data_nascimento)}</td>
+              <td>{aluno.encarregado_nome}</td>
+              <td>{aluno.telemovel}</td>
+              <td className="col-obs" />
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </section>
+  );
+
   return (
     <div className="page">
       <header className="page-header no-print">
@@ -244,76 +341,32 @@ export default function Listagens() {
         </aside>
 
         {/* Pré-visualização: o que aparece aqui é o que sai na impressora */}
-        <div className="paper-wrap">
-          {docAtual.deitado && <style>{'@media print { @page { size: A4 landscape; } }'}</style>}
-          <article className={`paper${docAtual.deitado ? ' paper--landscape' : ''}`}>
-            <header className="paper-header">
-              <div>
-                <div className="paper-brand">
-                  <svg viewBox="0 0 24 24" fill="currentColor" width="12" height="12">
-                    <path d="M11 2h2v5h5v2h-5v13h-2v-13h-5v-2h5z" />
-                  </svg>
-                  Catequese · Gestão Paroquial
-                </div>
-                <h2 className="paper-title">{docAtual.titulo}</h2>
-                {meta.length > 0 && (
-                  <div className="paper-meta">
-                    {meta.map((m) => (
-                      <span key={m.label}><b>{m.label}:</b> {m.valor}</span>
-                    ))}
-                  </div>
-                )}
-              </div>
-              <div className="paper-header-side">
-                <div>{loading ? '…' : `${total} aluno${total !== 1 ? 's' : ''}`}</div>
-                <div>{hoje}</div>
-              </div>
-            </header>
-
+        <div className="paper-wrap" ref={wrapRef}>
+          {/* Margem zero na página: assim a impressão não acrescenta data, hora e endereço.
+              A margem passa a ser feita pela moldura de cada folha (ver Folha). */}
+          <style>{`@media print { @page { size: A4 ${docAtual.deitado ? 'landscape' : 'portrait'}; margin: 0; } }`}</style>
+          <article
+            className={`paper${docAtual.deitado ? ' paper--landscape' : ''}`}
+            style={{ zoom: escala }}
+          >
+            {/* Cada catequista numa folha: cada um vai na sua moldura, que começa página nova. */}
+            {doc === 'catequistas' && grupoPorPagina && !loading && total > 0 ? (
+              gruposCatequista.map((grupo, i) => (
+                <Folha key={grupo.catequistaId} novaFolha={i > 0}>
+                  {i === 0 && cabecalho}
+                  {renderGrupo(grupo)}
+                </Folha>
+              ))
+            ) : (
+            <Folha>
+            {cabecalho}
             {loading ? (
               <div className="paper-empty">A carregar…</div>
             ) : !total ? (
               <div className="paper-empty">Nenhum aluno com estes filtros.</div>
             ) : (
               <>
-                {doc === 'catequistas' &&
-                  gruposCatequista.map((grupo, i) => (
-                    <section key={grupo.catequistaId} className={`grupo${grupoPorPagina && i > 0 ? ' grupo--nova-folha' : ''}`}>
-                      <h3 className="grupo-title">
-                        <span>
-                          {grupo.nome}
-                          {grupo.detalhe && <span className="grupo-detalhe"> — {grupo.detalhe}</span>}
-                        </span>
-                        <span className="grupo-count">{grupo.alunos.length} aluno{grupo.alunos.length !== 1 ? 's' : ''}</span>
-                      </h3>
-                      <table className="paper-table">
-                        <thead>
-                          <tr>
-                            <th className="col-n">#</th>
-                            <th>Nome</th>
-                            <th>Catecismo</th>
-                            <th>Nascimento</th>
-                            <th>Encarregado</th>
-                            <th>Telemóvel</th>
-                            <th className="col-obs">Observações</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {grupo.alunos.map((aluno, idx) => (
-                            <tr key={aluno.id}>
-                              <td className="col-n">{idx + 1}</td>
-                              <td><strong>{aluno.nome_aluno}</strong></td>
-                              <td className="nowrap">{aluno.ano_catecismo ? `${aluno.ano_catecismo}º ano` : ''}</td>
-                              <td>{formatDate(aluno.data_nascimento)}</td>
-                              <td>{aluno.encarregado_nome}</td>
-                              <td>{aluno.telemovel}</td>
-                              <td className="col-obs" />
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </section>
-                  ))}
+                {doc === 'catequistas' && gruposCatequista.map(renderGrupo)}
 
                 {doc === 'fichas' && (
                   <table className="paper-table">
@@ -449,6 +502,8 @@ export default function Listagens() {
                   </>
                 )}
               </>
+            )}
+            </Folha>
             )}
           </article>
         </div>
