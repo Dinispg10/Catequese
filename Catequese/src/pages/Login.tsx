@@ -15,7 +15,9 @@ const forgotSchema = z.object({
   email: z.string().email().min(1),
 });
 
-const resetSchema = z.object({
+// O Supabase usa códigos de 6 dígitos por omissão (pode estar configurado até 10).
+const codeSchema = z.object({
+  code: z.string().trim().regex(/^\d{6,10}$/, 'O código são os números que vieram no email'),
   password: z.string().min(6, 'A password deve ter pelo menos 6 caracteres'),
   confirmPassword: z.string()
 }).refine((data) => data.password === data.confirmPassword, {
@@ -23,27 +25,20 @@ const resetSchema = z.object({
   path: ["confirmPassword"],
 });
 
-type LoginFormData = z.infer<typeof loginSchema>;
-type ForgotFormData = z.infer<typeof forgotSchema>;
-type ResetFormData = z.infer<typeof resetSchema>;
+type Mode = 'login' | 'forgot' | 'code';
 
 export default function Login() {
-  const { signIn, resetPassword, updatePassword, session } = useAuth();
+  const { signIn, resetPassword, verifyRecoveryCode, updatePassword, session } = useAuth();
   const navigate = useNavigate();
-  const [mode, setMode] = useState<'login' | 'forgot' | 'reset'>('login');
+  const [mode, setMode] = useState<Mode>('login');
+  const [emailRecuperacao, setEmailRecuperacao] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
+  // O código certo já inicia sessão; só se entra na app depois de mudar a password.
   useEffect(() => {
-    // Detetar token de recuperação no URL (#access_token=...)
-    if (window.location.hash.includes('type=recovery') || window.location.hash.includes('access_token=')) {
-      setMode('reset');
-    }
-  }, []);
-
-  useEffect(() => {
-    if (session && mode !== 'reset') navigate('/alunos');
+    if (session && mode === 'login') navigate('/alunos');
   }, [session, navigate, mode]);
 
   const {
@@ -53,12 +48,19 @@ export default function Login() {
     getValues
   } = useForm({
     resolver: zodResolver(
-      mode === 'login' ? loginSchema : 
-      mode === 'forgot' ? forgotSchema : 
-      resetSchema
+      mode === 'login' ? loginSchema :
+      mode === 'forgot' ? forgotSchema :
+      codeSchema
     ),
-    defaultValues: { email: '', password: '', confirmPassword: '' }
+    defaultValues: { email: '', password: '', confirmPassword: '', code: '' }
   });
+
+  const irPara = (novo: Mode, email = getValues('email')) => {
+    setMode(novo);
+    setError(null);
+    setSuccess(null);
+    reset({ email, password: '', confirmPassword: '', code: '' });
+  };
 
   const onLoginSubmit = async (data: any) => {
     setError(null);
@@ -72,44 +74,47 @@ export default function Login() {
     navigate('/alunos');
   };
 
+  const enviarCodigo = async (email: string) => {
+    setError(null);
+    setSuccess(null);
+    setLoading(true);
+    const message = await resetPassword(email);
+    setLoading(false);
+    if (message) {
+      setError('Não foi possível enviar o email. Tenta daqui a uns minutos.');
+      return false;
+    }
+    return true;
+  };
+
   const onForgotSubmit = async (data: any) => {
+    if (!(await enviarCodigo(data.email))) return;
+    setEmailRecuperacao(data.email);
+    irPara('code', data.email);
+    setSuccess(`Se ${data.email} tiver conta, vai receber um email com um código. Veja também o spam.`);
+  };
+
+  const reenviarCodigo = async () => {
+    if (await enviarCodigo(emailRecuperacao)) setSuccess('Enviámos um código novo.');
+  };
+
+  const onCodeSubmit = async (data: any) => {
     setError(null);
     setSuccess(null);
     setLoading(true);
-    const message = await resetPassword(data.email);
-    setLoading(false);
-    if (message) {
-      setError('Ocorreu um erro ao enviar o email.');
-    } else {
-      setSuccess('Enviamos um link de recuperação para o seu email.');
+    const codigoErro = await verifyRecoveryCode(emailRecuperacao, data.code.trim());
+    if (codigoErro) {
+      setLoading(false);
+      setError('Código errado ou expirado. Confirme os números ou peça um código novo.');
+      return;
     }
-  };
-
-  const onResetSubmit = async (data: any) => {
-    setError(null);
-    setSuccess(null);
-    setLoading(true);
-    const message = await updatePassword(data.password);
+    const passwordErro = await updatePassword(data.password);
     setLoading(false);
-    if (message) {
-      setError('Ocorreu um erro ao atualizar a password: ' + message);
-    } else {
-      setSuccess('Password atualizada com sucesso! Já pode entrar.');
-      setTimeout(() => {
-        setMode('login');
-        setSuccess(null);
-        window.location.hash = ''; // Limpar o hash
-      }, 3000);
+    if (passwordErro) {
+      setError('Não foi possível guardar a password nova: ' + passwordErro);
+      return;
     }
-  };
-
-  const toggleMode = () => {
-    const currentEmail = getValues('email');
-    setMode(prev => prev === 'login' ? 'forgot' : 'login');
-    setError(null);
-    setSuccess(null);
-    // Preservar o email ao trocar de modo
-    reset({ email: currentEmail, password: '', confirmPassword: '' });
+    navigate('/alunos');
   };
 
   return (
@@ -158,7 +163,7 @@ export default function Login() {
             </button>
 
             <div className="login-footer">
-              <span className="login-link" onClick={toggleMode}>
+              <span className="login-link" onClick={() => irPara('forgot')}>
                 Esqueci-me da password
               </span>
             </div>
@@ -166,9 +171,9 @@ export default function Login() {
         ) : mode === 'forgot' ? (
           <form className="login-form" onSubmit={handleSubmit(onForgotSubmit, () => setError('Introduza um email válido'))}>
             <p style={{ textAlign: 'center', fontSize: '14px', color: 'var(--gray-600)', marginBottom: '8px' }}>
-              Introduza o seu email para receber um link de recuperação.
+              Introduza o seu email para receber um código de recuperação.
             </p>
-            
+
             <Controller
               name="email"
               control={control}
@@ -182,24 +187,36 @@ export default function Login() {
             />
 
             {error && <div className="alert">{error}</div>}
-            {success && <div className="alert info">{success}</div>}
 
             <button type="submit" className="button" disabled={loading}>
-              {loading ? 'A enviar…' : 'Enviar Link'}
+              {loading ? 'A enviar…' : 'Enviar código'}
             </button>
 
             <div className="login-footer">
-              <span className="login-link" onClick={toggleMode}>
+              <span className="login-link" onClick={() => irPara('login')}>
                 Voltar ao Login
               </span>
             </div>
           </form>
         ) : (
-          <form className="login-form" onSubmit={handleSubmit(onResetSubmit)}>
+          <form className="login-form" onSubmit={handleSubmit(onCodeSubmit)}>
             <p style={{ textAlign: 'center', fontSize: '14px', color: 'var(--gray-600)', marginBottom: '8px' }}>
-              Defina a sua nova password de acesso.
+              Escreva o código que recebeu por email e escolha a password nova.
             </p>
-            
+
+            <Controller
+              name="code"
+              control={control}
+              render={({ field, fieldState }) => (
+                <FormField
+                  {...field}
+                  label="Código do email"
+                  placeholder="123456"
+                  error={fieldState.error?.message}
+                />
+              )}
+            />
+
             <Controller
               name="password"
               control={control}
@@ -232,8 +249,18 @@ export default function Login() {
             {success && <div className="alert info">{success}</div>}
 
             <button type="submit" className="button" disabled={loading}>
-              {loading ? 'A guardar…' : 'Guardar Nova Password'}
+              {loading ? 'A guardar…' : 'Guardar password e entrar'}
             </button>
+
+            <div className="login-footer">
+              <span className="login-link" onClick={reenviarCodigo}>
+                Enviar outro código
+              </span>
+              {' · '}
+              <span className="login-link" onClick={() => irPara('login', emailRecuperacao)}>
+                Voltar ao Login
+              </span>
+            </div>
           </form>
         )}
       </div>

@@ -8,6 +8,7 @@ interface AuthContextValue {
   signIn: (email: string, password: string) => Promise<string | null>;
   signOut: () => Promise<void>;
   resetPassword: (email: string) => Promise<string | null>;
+  verifyRecoveryCode: (email: string, code: string) => Promise<string | null>;
   updatePassword: (password: string) => Promise<string | null>;
 }
 
@@ -78,10 +79,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setSession(null);
         }
       },
+      // Recuperação com código em vez de link: um link no email não consegue abrir
+      // uma app instalada no computador. O email traz um código (modelo "Reset
+      // Password" do Supabase com {{ .Token }}) que se escreve na própria app.
       resetPassword: async (email) => {
-        const { error } = await supabase.auth.resetPasswordForEmail(email, {
-          redirectTo: window.location.origin + '/login',
-        });
+        const { error } = await supabase.auth.resetPasswordForEmail(email);
+        return error ? error.message : null;
+      },
+      // Um código certo inicia sessão; a seguir muda-se a password com updatePassword.
+      verifyRecoveryCode: async (email, code) => {
+        const { error } = await supabase.auth.verifyOtp({ email, token: code, type: 'recovery' });
         return error ? error.message : null;
       },
       updatePassword: async (password) => {
